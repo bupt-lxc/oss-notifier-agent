@@ -1,13 +1,12 @@
-"""Postmark email delivery for the good-first-issue digest.
-
-Builds a plain HTML digest (no templating dependency — the template stays
-minimal-dependency and this markup is simple enough not to need one) and
-POSTs it via Postmark's transactional email API.
-"""
+"""Email the good-first-issue digest through SMTP over TLS or Postmark."""
 
 from __future__ import annotations
 
+import asyncio
 import html
+import smtplib
+import ssl
+from email.message import EmailMessage
 
 import httpx
 
@@ -19,6 +18,41 @@ from agent.pipeline.models import Issue
 logger = get_logger(__name__)
 
 POSTMARK_URL = "https://api.postmarkapp.com/email"
+
+
+def _digest_subject(count: int) -> str:
+    return f"OSS Notifier Agent: {count} issue{'' if count == 1 else 's'} found"
+
+
+def _send_smtp_digest(flagged: list[tuple[Issue, AgentOutput]], server: str) -> None:
+    if not settings.smtp_email or not settings.smtp_password:
+        raise RuntimeError("SMTP_EMAIL and SMTP_PASSWORD are required when SMTP_SERVER is set.")
+
+    message = EmailMessage()
+    message["From"] = settings.email_from or settings.smtp_email
+    message["To"] = settings.email_to or settings.smtp_email
+    message["Subject"] = _digest_subject(len(flagged))
+    message.set_content(_render_digest_html(flagged), subtype="html")
+    with smtplib.SMTP_SSL(
+        server, settings.smtp_port, timeout=30, context=ssl.create_default_context()
+    ) as smtp:
+        smtp.login(settings.smtp_email, settings.smtp_password.get_secret_value())
+        refused = smtp.send_message(message)
+        if refused:
+            raise RuntimeError(f"SMTP server refused {len(refused)} recipient(s).")
+    logger.info("Digest email sent via SMTP", extra={"issue_count": len(flagged)})
+
+
+async def send_digest(flagged: list[tuple[Issue, AgentOutput]]) -> None:
+    if settings.smtp_server:
+        await asyncio.to_thread(_send_smtp_digest, flagged, settings.smtp_server)
+        return
+
+    client = PostmarkClient()
+    try:
+        await client.send_digest(flagged)
+    finally:
+        await client.aclose()
 
 
 class PostmarkConfigError(RuntimeError):
@@ -50,9 +84,6 @@ class PostmarkClient:
 
         recipients = [addr.strip() for addr in settings.email_to.split(",") if addr.strip()]
         html_body = _render_digest_html(flagged)
-        count = len(flagged)
-        subject = f"OSS Notifier Agent: {count} issue{'' if count == 1 else 's'} found"
-
         response = await self._client.post(
             POSTMARK_URL,
             headers={
@@ -63,7 +94,7 @@ class PostmarkClient:
             json={
                 "From": settings.email_from,
                 "To": ", ".join(recipients),
-                "Subject": subject,
+                "Subject": _digest_subject(len(flagged)),
                 "HtmlBody": html_body,
                 "MessageStream": "outbound",
             },

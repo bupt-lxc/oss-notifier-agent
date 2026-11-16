@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # pydantic-settings' own env_file loading (below) only populates this Settings
@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     )
     email_from: str | None = Field(default=None, validation_alias="AGENT_EMAIL_FROM")
     email_to: str | None = Field(default=None, validation_alias="AGENT_EMAIL_TO")
+    smtp_server: str | None = Field(default=None, validation_alias="SMTP_SERVER")
+    smtp_port: int = Field(default=465, ge=1, le=65535, validation_alias="SMTP_PORT")
+    smtp_email: str | None = Field(default=None, validation_alias="SMTP_EMAIL")
+    smtp_password: SecretStr | None = Field(default=None, validation_alias="SMTP_PASSWORD")
     # Default cron cadence (notify.yml) is daily — this is set a bit above
     # 24h rather than exactly 24h so a run that's delayed or skipped doesn't
     # silently drop issues created in the gap. Not derived from the cron

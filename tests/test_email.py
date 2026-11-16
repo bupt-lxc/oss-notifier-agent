@@ -2,6 +2,7 @@
 
 import httpx
 import pytest
+from pydantic import SecretStr
 
 from agent.agents import AgentOutput
 from agent.config import settings
@@ -72,3 +73,43 @@ async def test_send_digest_raises_on_postmark_error():
             await client.send_digest([(ISSUE, VERDICT)])
     finally:
         await client._client.aclose()
+
+
+async def test_smtp_digest_uses_mailbox_as_sender_and_recipient(monkeypatch):
+    from agent.pipeline.email import send_digest
+
+    monkeypatch.setattr(settings, "smtp_server", "smtp.163.com", raising=False)
+    monkeypatch.setattr(settings, "smtp_email", "test@163.com", raising=False)
+    monkeypatch.setattr(
+        settings, "smtp_password", SecretStr("test-authorization-code"), raising=False
+    )
+    monkeypatch.setattr(settings, "email_from", None)
+    monkeypatch.setattr(settings, "email_to", None)
+    captured = {}
+
+    class FakeSmtp:
+        def __init__(self, host, port, *, timeout, context):
+            captured["server"] = (host, port)
+            assert context.check_hostname
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            pass
+
+        def login(self, user, password):
+            captured["login"] = (user, password)
+
+        def send_message(self, message):
+            captured["message"] = message
+            return {}
+
+    monkeypatch.setattr("smtplib.SMTP_SSL", FakeSmtp)
+    await send_digest([(ISSUE, VERDICT)])
+
+    assert captured["server"] == ("smtp.163.com", 465)
+    assert captured["login"] == ("test@163.com", "test-authorization-code")
+    message = captured["message"]
+    assert message["From"] == message["To"] == "test@163.com"
+    assert ISSUE.title in message.get_body(preferencelist=("html",)).get_content()

@@ -20,7 +20,7 @@ from agent.agents import AgentOutput, run_agent
 from agent.config import settings
 from agent.logging import configure_logging, get_logger
 from agent.pipeline.config import PipelineConfig, load_config
-from agent.pipeline.email import PostmarkClient
+from agent.pipeline.email import send_digest
 from agent.pipeline.github_client import GitHubIssuesClient
 from agent.pipeline.models import Issue
 from agent.prompts.templates import render_issue_prompt
@@ -115,11 +115,7 @@ async def main(dry_run: bool = False) -> None:
             print_digest(flagged)
             return
 
-        postmark_client = PostmarkClient()
-        try:
-            await postmark_client.send_digest(flagged)
-        finally:
-            await postmark_client.aclose()
+        await send_digest(flagged)
 
 
 def _parse_args() -> argparse.Namespace:

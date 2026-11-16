@@ -134,14 +134,10 @@ async def test_main_skips_email_when_nothing_flagged(monkeypatch):
 
     send_calls = []
 
-    class FakePostmarkClient:
-        async def send_digest(self, flagged):
-            send_calls.append(flagged)
+    async def fake_send_digest(flagged):
+        send_calls.append(flagged)
 
-        async def aclose(self):
-            pass
-
-    monkeypatch.setattr(run_module, "PostmarkClient", FakePostmarkClient)
+    monkeypatch.setattr(run_module, "send_digest", fake_send_digest)
 
     await run_module.main()
 
@@ -166,14 +162,10 @@ async def test_main_sends_email_when_issues_flagged(monkeypatch):
 
     send_calls = []
 
-    class FakePostmarkClient:
-        async def send_digest(self, flagged):
-            send_calls.append(flagged)
+    async def fake_send_digest(flagged):
+        send_calls.append(flagged)
 
-        async def aclose(self):
-            pass
-
-    monkeypatch.setattr(run_module, "PostmarkClient", FakePostmarkClient)
+    monkeypatch.setattr(run_module, "send_digest", fake_send_digest)
 
     await run_module.main()
 
@@ -195,11 +187,8 @@ def test_print_digest_includes_issue_details(capsys):
     assert "Small, localized fix." in output
 
 
-class _UnusedPostmarkClient:
-    """Fails the test if instantiated — dry run must never construct a real client."""
-
-    def __init__(self):
-        raise AssertionError("PostmarkClient should not be constructed during a dry run")
+async def _unexpected_send_digest(flagged):
+    raise AssertionError("A dry run must never send email")
 
 
 async def test_main_dry_run_prints_instead_of_emailing(monkeypatch, capsys):
@@ -217,7 +206,7 @@ async def test_main_dry_run_prints_instead_of_emailing(monkeypatch, capsys):
         return AgentOutput(is_good_first_issue=True, reasoning="r", summary="s")
 
     monkeypatch.setattr(run_module, "run_agent", fake_run_agent)
-    monkeypatch.setattr(run_module, "PostmarkClient", _UnusedPostmarkClient)
+    monkeypatch.setattr(run_module, "send_digest", _unexpected_send_digest)
 
     await run_module.main(dry_run=True)
 
@@ -241,7 +230,7 @@ async def test_main_dry_run_with_nothing_flagged(monkeypatch, capsys):
         return AgentOutput(is_good_first_issue=False, reasoning="r", summary="s")
 
     monkeypatch.setattr(run_module, "run_agent", fake_run_agent)
-    monkeypatch.setattr(run_module, "PostmarkClient", _UnusedPostmarkClient)
+    monkeypatch.setattr(run_module, "send_digest", _unexpected_send_digest)
 
     await run_module.main(dry_run=True)
 
