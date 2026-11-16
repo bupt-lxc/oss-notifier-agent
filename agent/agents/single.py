@@ -23,9 +23,8 @@ logger = get_logger(__name__)
 
 # Guardrail against runaway agentic loops. A run that exceeds either limit
 # raises UsageLimitExceeded instead of silently burning tokens. This agent
-# makes a single structured-output classification call per issue (no tool
-# loop), so the limits are tuned well below the template's tool-calling
-# defaults — one retry on a validation failure is all that's expected.
+# makes one structured-output classification call per issue, with up to two
+# retries for malformed model output.
 USAGE_LIMITS = UsageLimits(request_limit=3, total_tokens_limit=20_000)
 
 
@@ -53,6 +52,7 @@ agent: Agent[AgentDeps, AgentOutput] = Agent(
     settings.model,
     name="agent",  # labels this agent's run span in Logfire traces
     output_type=AgentOutput,
+    retries={"output": 2},
     deps_type=AgentDeps,
     instructions=load_prompt("system"),  # loads agent/prompts/system.txt
 )

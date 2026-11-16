@@ -16,6 +16,10 @@ on:
         description: Preview the digest without sending an email
         type: boolean
         default: false
+      send_empty:
+        description: Email the digest even if the scan has zero matches
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -46,9 +50,13 @@ jobs:
           if [[ "$DRY_RUN" == "true" ]]; then
             args+=(--dry-run)
           fi
+          if [[ "$SEND_EMPTY" == "true" ]]; then
+            args+=(--send-empty)
+          fi
           uv run --locked python -m agent.pipeline.run "${args[@]}"
         env:
           DRY_RUN: ${{ inputs.dry_run }}
+          SEND_EMPTY: ${{ inputs.send_empty }}
           # Only the secret matching AGENT_MODEL's provider needs a real
           # value; the others can be left unset in this fork's secrets.
           AGENT_MODEL: ${{ vars.AGENT_MODEL }}

@@ -116,7 +116,8 @@ async def test_triage_issues_keeps_only_flagged(monkeypatch):
     assert flagged[0][0].html_url.endswith("/1")
 
 
-async def test_main_skips_email_when_nothing_flagged(monkeypatch):
+@pytest.mark.parametrize("send_empty", [False, True])
+async def test_main_only_emails_empty_digest_when_requested(monkeypatch, send_empty):
     monkeypatch.setattr(run_module, "configure_logging", lambda: None)
     monkeypatch.setattr(
         run_module,
@@ -139,9 +140,12 @@ async def test_main_skips_email_when_nothing_flagged(monkeypatch):
 
     monkeypatch.setattr(run_module, "send_digest", fake_send_digest)
 
-    await run_module.main()
+    if send_empty:
+        await run_module.main(send_empty=True)
+    else:
+        await run_module.main()
 
-    assert send_calls == []
+    assert send_calls == ([[]] if send_empty else [])
 
 
 async def test_main_sends_email_when_issues_flagged(monkeypatch):
