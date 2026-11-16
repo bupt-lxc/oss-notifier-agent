@@ -10,6 +10,9 @@ import os
 os.environ.setdefault("ANTHROPIC_API_KEY", "unit-test-dummy-key")
 os.environ.setdefault("OPENAI_API_KEY", "unit-test-dummy-key")
 os.environ.setdefault("GOOGLE_API_KEY", "unit-test-dummy-key")
+os.environ.setdefault("DASHSCOPE_API_KEY", "unit-test-dummy-key")
+os.environ.setdefault("DASHSCOPE_URL", "https://dashscope.example/compatible-mode/v1")
+os.environ.setdefault("DASHSCOPE_MODEL", "qwen-test")
 
 import sys  # noqa: E402
 from contextlib import ExitStack  # noqa: E402

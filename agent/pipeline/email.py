@@ -117,13 +117,12 @@ def _render_digest_html(flagged: list[tuple[Issue, AgentOutput]]) -> str:
             <p><strong>推荐理由</strong> {html.escape(verdict.reasoning)}</p>
         </li>
         """)
-    content = f"<ul>{''.join(rows)}</ul>" if rows else "<p>本轮没有符合筛选条件的 Issue。</p>"
     return f"""
     <html lang="zh-CN">
     <head><meta charset="utf-8"></head>
     <body>
         <h2>适合入门的开源任务</h2>
-        {content}
+        <ul>{"".join(rows)}</ul>
     </body>
     </html>
     """

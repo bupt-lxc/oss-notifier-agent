@@ -34,6 +34,7 @@ class Settings(BaseSettings):
         # value ("") instead of falling back to the field default, and
         # infer_model("") blows up with "Unknown model: ". Treat empty as unset.
         env_ignore_empty=True,
+        hide_input_in_errors=True,
     )
 
     # Provider API keys — required only for the provider of the selected model.
@@ -45,6 +46,9 @@ class Settings(BaseSettings):
     # pydantic_ai.providers.google.GoogleProvider reads GOOGLE_API_KEY directly
     # (falling back to the legacy GEMINI_API_KEY name, which we don't rely on).
     google_api_key: str | None = Field(default=None, validation_alias="GOOGLE_API_KEY")
+    dashscope_api_key: SecretStr | None = Field(default=None, validation_alias="DASHSCOPE_API_KEY")
+    dashscope_url: str | None = Field(default=None, validation_alias="DASHSCOPE_URL")
+    dashscope_model: str | None = Field(default=None, validation_alias="DASHSCOPE_MODEL")
 
     # Model selection — model-agnostic. Defaults to a small/fast Gemini model:
     # per-issue triage is a cheap, high-volume structured-output classification
@@ -103,6 +107,12 @@ class Settings(BaseSettings):
         only by evals, which require a real key at runtime anyway.
         """
         provider = self.model.split(":", 1)[0]
+        if self.model == "dashscope" and not all(
+            (self.dashscope_api_key, self.dashscope_url, self.dashscope_model)
+        ):
+            raise ValueError(
+                "AGENT_MODEL=dashscope requires DASHSCOPE_API_KEY, DASHSCOPE_URL, and DASHSCOPE_MODEL."
+            )
         if provider == "anthropic" and not self.anthropic_api_key:
             raise ValueError(
                 "AGENT_MODEL is an Anthropic model but ANTHROPIC_API_KEY is not set. "

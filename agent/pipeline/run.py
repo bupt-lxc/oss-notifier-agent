@@ -87,7 +87,7 @@ def print_digest(flagged: list[tuple[Issue, AgentOutput]]) -> None:
         print(f"  Reasoning: {verdict.reasoning}\n")
 
 
-async def main(dry_run: bool = False, send_empty: bool = False) -> None:
+async def main(dry_run: bool = False) -> None:
     configure_logging()
 
     with logfire.span("digest_run"):
@@ -104,7 +104,7 @@ async def main(dry_run: bool = False, send_empty: bool = False) -> None:
         flagged = await triage_issues(issues)
         logger.info("Triage complete (%d matched)", len(flagged))
 
-        if not flagged and not send_empty:
+        if not flagged:
             logger.info("No good first issues found, skipping email")
             if dry_run:
                 print("\nNo good first issues found.")
@@ -125,14 +125,9 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Search and triage issues as normal, but print the digest instead of emailing it.",
     )
-    parser.add_argument(
-        "--send-empty",
-        action="store_true",
-        help="Send a digest even if no issues qualify.",
-    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
-    asyncio.run(main(dry_run=args.dry_run, send_empty=args.send_empty))
+    asyncio.run(main(dry_run=args.dry_run))

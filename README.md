@@ -50,6 +50,7 @@ The LLM only does one thing: classify a single issue as a good first issue
 | `ANTHROPIC_API_KEY` | For Anthropic API key authentication | |
 | `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` | For an Anthropic-compatible gateway that uses bearer authentication | |
 | `OPENAI_API_KEY` | If `AGENT_MODEL` is an `openai:...` model | |
+| `DASHSCOPE_API_KEY`, `DASHSCOPE_URL` | If `AGENT_MODEL` is `dashscope` | DashScope credentials and OpenAI-compatible endpoint |
 | `SMTP_EMAIL`, `SMTP_PASSWORD` | For SMTP | Mailbox address and SMTP authorization code |
 | `POSTMARK_SERVER_TOKEN` | For Postmark | From your Postmark server |
 | `AGENT_EMAIL_FROM`, `AGENT_EMAIL_TO` | For Postmark or to override SMTP addresses | SMTP defaults both to `SMTP_EMAIL` |
@@ -59,6 +60,9 @@ The LLM only does one thing: classify a single issue as a good first issue
 public repo issues. `AGENT_MODEL` itself isn't sensitive; set it as a repo **variable**
 (Settings → Secrets and variables → Actions → Variables) if you want to override the default, or
 leave it unset.
+
+For DashScope, set `AGENT_MODEL=dashscope` and set `DASHSCOPE_MODEL` to the model name
+in repository variables. For local runs, set the same names in the environment.
 
 For SMTP over TLS, also set the repository variable `SMTP_SERVER` (e.g. `smtp.163.com`).
 `SMTP_PORT` defaults to `465`. The manual trigger has a `dry_run` option to preview the digest.

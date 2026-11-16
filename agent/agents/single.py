@@ -13,9 +13,11 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.alibaba import AlibabaProvider
 from pydantic_ai.usage import UsageLimits
 
-from agent.config import settings
+from agent.config import Settings, settings
 from agent.logging import configure_logging, get_logger
 from agent.prompts.templates import load_prompt
 
@@ -47,9 +49,25 @@ class AgentDeps:
     pass
 
 
+def _build_model(config: Settings) -> str | OpenAIChatModel:
+    if config.model != "dashscope":
+        return config.model
+
+    assert config.dashscope_api_key is not None
+    assert config.dashscope_url is not None
+    assert config.dashscope_model is not None
+    return OpenAIChatModel(
+        config.dashscope_model,
+        provider=AlibabaProvider(
+            api_key=config.dashscope_api_key.get_secret_value(),
+            base_url=config.dashscope_url.rstrip("/").removesuffix("/chat/completions"),
+        ),
+    )
+
+
 # --- Agent definition ---
 agent: Agent[AgentDeps, AgentOutput] = Agent(
-    settings.model,
+    _build_model(settings),
     name="agent",  # labels this agent's run span in Logfire traces
     output_type=AgentOutput,
     retries={"output": 2},
