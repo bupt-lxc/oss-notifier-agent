@@ -1,5 +1,7 @@
 """Unit tests for agent.pipeline.email — mocked transport, no network."""
 
+import json
+
 import httpx
 import pytest
 from pydantic import SecretStr
@@ -19,8 +21,8 @@ ISSUE = Issue(
 )
 VERDICT = AgentOutput(
     is_good_first_issue=True,
-    reasoning="Small, localized documentation fix.",
-    summary="Fix a typo in the README. Start at line 12 of README.md.",
+    reasoning="这是一项范围明确的小型文档修正。",
+    summary="修正 README 中的拼写错误。从 README.md 第 12 行开始。",
 )
 
 
@@ -48,7 +50,13 @@ async def test_send_digest_posts_to_postmark():
 
     assert captured["url"] == "https://api.postmarkapp.com/email"
     assert captured["headers"]["x-postmark-server-token"] == "test-token"
-    assert b"Fix typo in README" in captured["body"]
+    body = json.loads(captured["body"])
+    assert body["Subject"] == "开源任务推荐（1 条）"
+    assert "适合入门的开源任务" in body["HtmlBody"]
+    assert ISSUE.title in body["HtmlBody"]
+    assert ISSUE.html_url in body["HtmlBody"]
+    assert VERDICT.summary in body["HtmlBody"]
+    assert VERDICT.reasoning in body["HtmlBody"]
 
 
 async def test_send_digest_raises_without_server_token(monkeypatch):
@@ -112,4 +120,8 @@ async def test_smtp_digest_uses_mailbox_as_sender_and_recipient(monkeypatch):
     assert captured["login"] == ("test@163.com", "test-authorization-code")
     message = captured["message"]
     assert message["From"] == message["To"] == "test@163.com"
-    assert ISSUE.title in message.get_body(preferencelist=("html",)).get_content()
+    assert message["Subject"] == "开源任务推荐（1 条）"
+    body = message.get_body(preferencelist=("html",))
+    assert body.get_content_charset() == "utf-8"
+    assert ISSUE.title in body.get_content()
+    assert VERDICT.summary in body.get_content()

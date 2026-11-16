@@ -21,7 +21,7 @@ POSTMARK_URL = "https://api.postmarkapp.com/email"
 
 
 def _digest_subject(count: int) -> str:
-    return f"OSS Notifier Agent: {count} issue{'' if count == 1 else 's'} found"
+    return f"开源任务推荐（{count} 条）"
 
 
 def _send_smtp_digest(flagged: list[tuple[Issue, AgentOutput]], server: str) -> None:
@@ -113,14 +113,15 @@ def _render_digest_html(flagged: list[tuple[Issue, AgentOutput]]) -> str:
         <li style="margin-bottom: 1.5em;">
             <a href="{html.escape(issue.html_url)}"><strong>{html.escape(issue.title)}</strong></a>
             <br><span style="color: #666;">{html.escape(issue.repo)}</span>
-            <p>{html.escape(verdict.summary)}</p>
-            <p><em>{html.escape(verdict.reasoning)}</em></p>
+            <p><strong>摘要</strong> {html.escape(verdict.summary)}</p>
+            <p><strong>推荐理由</strong> {html.escape(verdict.reasoning)}</p>
         </li>
         """)
     return f"""
-    <html>
+    <html lang="zh-CN">
+    <head><meta charset="utf-8"></head>
     <body>
-        <h2>Good first issues digest</h2>
+        <h2>适合入门的开源任务</h2>
         <ul>{"".join(rows)}</ul>
     </body>
     </html>

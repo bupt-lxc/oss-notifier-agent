@@ -10,7 +10,12 @@ on:
     # hour as a high-load period more prone to scheduling delay; we saw a
     # ~1h45m delay on the very first scheduled run with "0 14 * * *".
     - cron: "9 14 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Preview the digest without sending an email
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -34,15 +39,29 @@ jobs:
         run: uv sync --group dev
 
       - name: Run digest
-        run: uv run python -m agent.pipeline.run
+        run: |
+          [[ -n "$ANTHROPIC_BASE_URL" ]] || unset ANTHROPIC_BASE_URL
+          [[ -n "$ANTHROPIC_AUTH_TOKEN" ]] || unset ANTHROPIC_AUTH_TOKEN
+          args=()
+          if [[ "$DRY_RUN" == "true" ]]; then
+            args+=(--dry-run)
+          fi
+          uv run --locked python -m agent.pipeline.run "${args[@]}"
         env:
+          DRY_RUN: ${{ inputs.dry_run }}
           # Only the secret matching AGENT_MODEL's provider needs a real
           # value; the others can be left unset in this fork's secrets.
           AGENT_MODEL: ${{ vars.AGENT_MODEL }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           AGENT_PIPELINE_CONFIG: ${{ secrets.AGENT_PIPELINE_CONFIG }}
+          SMTP_SERVER: ${{ vars.SMTP_SERVER }}
+          SMTP_PORT: ${{ vars.SMTP_PORT }}
+          SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           POSTMARK_SERVER_TOKEN: ${{ secrets.POSTMARK_SERVER_TOKEN }}
           AGENT_EMAIL_FROM: ${{ secrets.AGENT_EMAIL_FROM }}
           AGENT_EMAIL_TO: ${{ secrets.AGENT_EMAIL_TO }}

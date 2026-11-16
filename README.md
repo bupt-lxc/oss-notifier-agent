@@ -10,7 +10,7 @@ Built on [agent-template](https://github.com/tmtabor/agent-template).
 
 **This is a GitHub template repository.** Click **Use this template** to create your own copy.
 No instance-specific configuration — your repo watch list, labels, search terms, or credentials —
-should ever be committed. Everything you customize lives in your copy's own GitHub Secrets; see
+should ever be committed. Configure your copy through GitHub Actions secrets and variables; see
 [Use this template](#use-this-template) below.
 
 ## Stack
@@ -18,12 +18,12 @@ should ever be committed. Everything you customize lives in your copy's own GitH
 - Pydantic AI v2 (agents) + pydantic-evals (evals)
 - Logfire (observability)
 - pytest + pytest-asyncio
-- GitHub Actions (scheduling), GitHub Search API (ingestion), Postmark (email delivery)
+- GitHub Actions (scheduling), GitHub Search API (ingestion), SMTP or Postmark (email delivery)
 
 ## How it works
 
 ```
-GitHub Search API → truncate/filter → [triage agent, one call per issue] → digest builder → Postmark
+GitHub Search API → truncate/filter → [triage agent, one call per issue] → digest builder → SMTP or Postmark
 ```
 
 The LLM only does one thing: classify a single issue as a good first issue
@@ -37,8 +37,7 @@ The LLM only does one thing: classify a single issue as a good first issue
    the value of a new **`AGENT_PIPELINE_CONFIG`** secret
    (Settings → Secrets and variables → Actions → New repository secret). This is your watch list —
    it's never committed to git.
-3. **Add the rest of the secrets** listed below. Only the API key secret matching your chosen
-   `AGENT_MODEL` provider is required (Google/Gemini by default).
+3. **Add the secrets for your model and mail provider**. The default model uses Google/Gemini.
 4. **Enable and trigger the workflow manually** once (Actions → OSS Notifier Agent → Run workflow)
    to confirm an email arrives before trusting the cron schedule. GitHub disables scheduled
    workflows on new repositories created from a template until you enable them.
@@ -47,17 +46,21 @@ The LLM only does one thing: classify a single issue as a good first issue
 |---|---|---|
 | `AGENT_PIPELINE_CONFIG` | Always | Your repo watch list — see step 2 above |
 | `GOOGLE_API_KEY` | If `AGENT_MODEL` is a `google:...` model (the default) | |
-| `ANTHROPIC_API_KEY` | If `AGENT_MODEL` is an `anthropic:...` model | |
+| `ANTHROPIC_API_KEY` | For Anthropic API key authentication | |
+| `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` | For an Anthropic-compatible gateway that uses bearer authentication | |
 | `OPENAI_API_KEY` | If `AGENT_MODEL` is an `openai:...` model | |
-| `POSTMARK_SERVER_TOKEN` | Always | From your Postmark server |
-| `AGENT_EMAIL_FROM` | Always | Must be a Postmark-verified sender |
-| `AGENT_EMAIL_TO` | Always | Comma-separated recipient list |
+| `SMTP_EMAIL`, `SMTP_PASSWORD` | For SMTP | Mailbox address and SMTP authorization code |
+| `POSTMARK_SERVER_TOKEN` | For Postmark | From your Postmark server |
+| `AGENT_EMAIL_FROM`, `AGENT_EMAIL_TO` | For Postmark or to override SMTP addresses | SMTP defaults both to `SMTP_EMAIL` |
 | `LOGFIRE_TOKEN` | Optional | Falls back to console-only tracing if unset |
 
 `GITHUB_TOKEN` needs no setup — GitHub Actions provides it automatically for reading/searching
 public repo issues. `AGENT_MODEL` itself isn't sensitive; set it as a repo **variable**
 (Settings → Secrets and variables → Actions → Variables) if you want to override the default, or
 leave it unset.
+
+For SMTP over TLS, also set the repository variable `SMTP_SERVER` (e.g. `smtp.163.com`).
+`SMTP_PORT` defaults to `465`. The manual trigger has a `dry_run` option to preview the digest.
 
 The schedule is a `cron:` trigger in `.github/workflows/notify.yml` (default: daily at 14:09 UTC,
 i.e. ~6am Pacific Standard Time — GitHub Actions cron is UTC-only with no DST support, so this
@@ -93,7 +96,7 @@ uv run python -m agent.pipeline.run
 
 # Same, but print the digest to the console instead of emailing it — everything
 # up through triage still runs for real (GitHub search + real model calls),
-# only the Postmark send is skipped
+# only email delivery is skipped
 uv run python -m agent.pipeline.run --dry-run
 
 # Lint
@@ -119,7 +122,7 @@ agent/
     ├── config.py           # Pipeline config loading (AGENT_PIPELINE_CONFIG env var / secret)
     ├── models.py            # Issue model
     ├── github_client.py     # GitHub Search API client
-    ├── email.py              # Postmark digest delivery
+    ├── email.py              # SMTP or Postmark digest delivery
     └── run.py                 # Entrypoint: uv run python -m agent.pipeline.run
 
 tests/    # Unit tests against TestModel and mocked HTTP — no API calls, no API key needed

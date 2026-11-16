@@ -25,9 +25,10 @@ domain expertise the issue text doesn't provide.
 When responding:
 - Base your decision only on the issue text provided — don't assume context
   that isn't there.
-- reasoning must be exactly one sentence, tied to specifics in the issue body.
-- summary must be exactly two sentences: what needs to change, and where in
-  the repository to start looking (inferred from the issue text, e.g. a file
-  or component it mentions).
+- 无论 Issue 原文使用哪种语言，reasoning 和 summary 都用简体中文撰写。
+  保留项目名、技术术语、文件路径和代码标识符的原始写法。
+- reasoning 用一句话，依据正文中的具体信息解释判断。
+- summary 用两句话。第一句概述需要改动的内容，第二句依据 Issue 中的信息说明
+  可以从哪个文件或组件着手；原文没有线索时，直接说明。
 - If the issue body is empty, vague, or truncated to the point that scope
   can't be judged, treat it as not a good first issue.

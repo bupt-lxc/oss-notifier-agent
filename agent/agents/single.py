@@ -34,10 +34,8 @@ class AgentOutput(BaseModel):
     """Triage verdict for a single GitHub issue."""
 
     is_good_first_issue: bool
-    reasoning: str = Field(description="One-sentence justification based on the issue body.")
-    summary: str = Field(
-        description="Two-sentence summary of the required fix and where to start looking."
-    )
+    reasoning: str = Field(description="用一句简体中文，依据 Issue 正文说明判断理由。")
+    summary: str = Field(description="用两句简体中文分别概述需要改动的内容，以及可以从哪里着手。")
 
 
 # --- Dependencies ---
