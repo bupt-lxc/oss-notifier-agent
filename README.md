@@ -2,9 +2,10 @@
 
 [![CI](https://github.com/tmtabor/oss-notifier-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/tmtabor/oss-notifier-agent/actions/workflows/ci.yml)
 
-Scans a configured list of GitHub repositories on a schedule, uses an LLM to triage newly opened,
-unassigned issues for whether they're approachable for a first-time contributor, and emails a
-digest of the ones that qualify. Runs entirely on GitHub Actions — no server to host.
+Scans a configured list of GitHub repositories on a schedule. Skips issues with an assignee, a
+linked or referencing pull request, or a clear claim in the issue or its comments. An LLM
+evaluates the remaining new issues for first-time contributors and emails a digest of the matches.
+Runs entirely on GitHub Actions.
 
 Built on [agent-template](https://github.com/tmtabor/agent-template).
 

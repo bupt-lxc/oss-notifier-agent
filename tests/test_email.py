@@ -83,7 +83,8 @@ async def test_send_digest_raises_on_postmark_error():
         await client._client.aclose()
 
 
-async def test_smtp_digest_uses_mailbox_as_sender_and_recipient(monkeypatch):
+@pytest.mark.parametrize("recipient", [None, "digest@example.com"])
+async def test_smtp_digest_uses_configured_recipient_or_defaults_to_sender(monkeypatch, recipient):
     from agent.pipeline.email import send_digest
 
     monkeypatch.setattr(settings, "smtp_server", "smtp.163.com", raising=False)
@@ -92,7 +93,7 @@ async def test_smtp_digest_uses_mailbox_as_sender_and_recipient(monkeypatch):
         settings, "smtp_password", SecretStr("test-authorization-code"), raising=False
     )
     monkeypatch.setattr(settings, "email_from", None)
-    monkeypatch.setattr(settings, "email_to", None)
+    monkeypatch.setattr(settings, "email_to", recipient)
     captured = {}
 
     class FakeSmtp:
@@ -119,7 +120,8 @@ async def test_smtp_digest_uses_mailbox_as_sender_and_recipient(monkeypatch):
     assert captured["server"] == ("smtp.163.com", 465)
     assert captured["login"] == ("test@163.com", "test-authorization-code")
     message = captured["message"]
-    assert message["From"] == message["To"] == "test@163.com"
+    assert message["From"] == "test@163.com"
+    assert message["To"] == (recipient or "test@163.com")
     assert message["Subject"] == "开源任务推荐（1 条）"
     body = message.get_body(preferencelist=("html",))
     assert body.get_content_charset() == "utf-8"

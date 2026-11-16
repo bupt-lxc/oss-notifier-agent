@@ -1,10 +1,4 @@
-"""GitHub Search API client: fetches new, unassigned, open issues.
-
-Deterministic ingestion — no LLM involved. Pre-filters heavily via the search
-query itself (state, assignee, creation time, labels/keywords) before any
-issue body is downloaded, to minimize both API rate-limit usage and the
-number of issues the triage agent has to look at.
-"""
+"""Fetch open GitHub issues without an assignee, PR, or explicit claim."""
 
 from __future__ import annotations
 
@@ -12,12 +6,14 @@ import httpx
 
 from agent.config import settings
 from agent.logging import get_logger
+from agent.pipeline.claims import has_active_claim
 from agent.pipeline.config import PipelineConfig, RepoConfig
 from agent.pipeline.models import Issue
 
 logger = get_logger(__name__)
 
-SEARCH_URL = "https://api.github.com/search/issues"
+API_URL = "https://api.github.com"
+SEARCH_URL = f"{API_URL}/search/issues"
 PER_PAGE = 50
 
 
@@ -45,7 +41,7 @@ class GitHubIssuesClient:
         since_iso: str,
         max_body_chars: int,
     ) -> list[Issue]:
-        """Search one repository for new, open, unassigned issues.
+        """Search one repository for new, open issues that are available to take.
 
         Args:
             repo_config: The repo and its label/search-term overrides.
@@ -82,7 +78,12 @@ class GitHubIssuesClient:
 
         issues = []
         for item in items:
+            if item.get("assignee") or item.get("assignees"):
+                continue
             body = item.get("body") or ""
+            author = (item.get("user") or {}).get("login", "")
+            if not await self._is_available(repo_config.repo, item["number"], [(author, body)]):
+                continue
             truncated = len(body) > max_body_chars
             if truncated:
                 body = body[:max_body_chars]
@@ -97,8 +98,42 @@ class GitHubIssuesClient:
                     truncated=truncated,
                 )
             )
-        logger.info("Search complete", extra={"repo": repo_config.repo, "issue_count": len(issues)})
+        logger.info(
+            "Search complete",
+            extra={
+                "repo": repo_config.repo,
+                "issue_count": len(issues),
+                "filtered_count": len(items) - len(issues),
+            },
+        )
         return issues
+
+    async def _is_available(self, repo: str, number: int, comments: list[tuple[str, str]]) -> bool:
+        url: httpx.URL | None = httpx.URL(
+            f"{API_URL}/repos/{repo}/issues/{number}/timeline", params={"per_page": 100}
+        )
+        try:
+            while url is not None:
+                response = await self._client.get(url, headers=self._headers())
+                response.raise_for_status()
+                for event in response.json():
+                    if event["event"] == "cross-referenced":
+                        source_issue = (event.get("source") or {}).get("issue") or {}
+                        if source_issue.get("pull_request") is not None:
+                            return False
+                    elif event["event"] == "commented":
+                        author = event.get("user") or {}
+                        if author.get("type") != "Bot":
+                            comments.append((author.get("login", ""), event.get("body") or ""))
+                next_page = response.links.get("next", {}).get("url")
+                url = response.url.join(next_page) if next_page else None
+        except httpx.HTTPError:
+            logger.warning(
+                "Skipping issue whose timeline could not be checked",
+                extra={"repo": repo, "number": number},
+            )
+            return False
+        return not has_active_claim(comments)
 
     def _build_query(
         self, repo_config: RepoConfig, pipeline_config: PipelineConfig, since_iso: str
@@ -108,6 +143,7 @@ class GitHubIssuesClient:
             "is:issue",
             "is:open",
             "no:assignee",
+            "-linked:pr",
             f"created:>{since_iso}",
         ]
 
