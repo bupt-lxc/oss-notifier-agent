@@ -1,4 +1,4 @@
-"""Pipeline configuration: the repo watch list, labels, and search terms.
+"""Pipeline configuration: repository groups, labels, and search terms.
 
 This is instance-specific configuration, not a secret credential, but it
 still must never be committed — the template repo shouldn't carry any one
@@ -18,6 +18,8 @@ from agent.logging import get_logger
 
 logger = get_logger(__name__)
 
+VERYFAST_REPOS = frozenset({"vllm-project/vllm", "sgl-project/sglang"})
+
 
 class RepoConfig(BaseModel):
     """One watched repository, with optional overrides of the defaults."""
@@ -30,6 +32,13 @@ class RepoConfig(BaseModel):
     repo: str  # "owner/name"
     labels: list[str] | None = None
     search_terms: list[str] | None = None
+    schedule_group: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9-]*$")
+
+    @property
+    def effective_schedule_group(self) -> str:
+        if self.schedule_group is not None:
+            return self.schedule_group
+        return "veryfast" if self.repo.lower() in VERYFAST_REPOS else "daily"
 
 
 class PipelineDefaults(BaseModel):

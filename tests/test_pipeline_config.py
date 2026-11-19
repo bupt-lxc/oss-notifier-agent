@@ -49,6 +49,26 @@ def test_repo_config_requires_repo_field():
         RepoConfig.model_validate({})
 
 
+@pytest.mark.parametrize(
+    ("repo", "group_override", "expected"),
+    [
+        ("vllm-project/vllm", {}, "veryfast"),
+        ("SGL-Project/SGLang", {}, "veryfast"),
+        ("octocat/example", {}, "daily"),
+        ("vllm-project/vllm", {"schedule_group": "weekly"}, "weekly"),
+        ("octocat/example", {"schedule_group": "custom-group"}, "custom-group"),
+    ],
+)
+def test_repo_resolves_monitoring_group(repo, group_override, expected):
+    config = RepoConfig(repo=repo, **group_override)
+    assert config.effective_schedule_group == expected
+
+
+def test_repo_rejects_invalid_group_name():
+    with pytest.raises(ValidationError, match="schedule_group"):
+        RepoConfig(repo="octocat/example", schedule_group="bad group")
+
+
 def test_misindented_repositories_under_defaults_raises_not_silently_drops():
     """Regression test: repositories nested under defaults by a YAML indentation
     mistake must fail loudly, not silently produce an empty repo list."""

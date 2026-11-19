@@ -2,33 +2,55 @@ name: OSS Notifier Agent
 
 on:
   schedule:
-    # Daily at 14:09 UTC = ~7am Pacific Daylight Time (UTC-7). GitHub Actions
-    # cron is UTC-only with no DST support, so during Pacific Standard Time
-    # (UTC-8, roughly Nov-Mar) this actually runs at ~6am Pacific instead of
-    # 7am — a one-hour drift twice a year, not something cron can fix.
-    # Minute is :09, not :00 — GitHub's own docs call out the top of the
-    # hour as a high-load period more prone to scheduling delay; we saw a
-    # ~1h45m delay on the very first scheduled run with "0 14 * * *".
+    # Cron expressions are in UTC. Keep them in sync with MONITOR_SCHEDULES.
+    - cron: "7,37 * * * *"
+    - cron: "11 * * * *"
+    - cron: "13 */3 * * *"
+    - cron: "17 */12 * * *"
     - cron: "9 14 * * *"
+    - cron: "19 14 * * 1"
   workflow_dispatch:
     inputs:
+      group:
+        description: Schedule group to scan (leave blank to scan all repositories)
+        type: string
+        required: false
       dry_run:
         description: Preview the digest without sending an email
         type: boolean
         default: false
 
+env:
+  # To add a group, add its cron here and under on.schedule, then set
+  # schedule_group on the relevant repositories in AGENT_PIPELINE_CONFIG.
+  MONITOR_SCHEDULES: >-
+    {
+      "veryfast": {"cron": "7,37 * * * *", "lookback_hours": 2},
+      "fast": {"cron": "11 * * * *", "lookback_hours": 3},
+      "normal": {"cron": "13 */3 * * *", "lookback_hours": 5},
+      "slow": {"cron": "17 */12 * * *", "lookback_hours": 14},
+      "daily": {"cron": "9 14 * * *", "lookback_hours": 25},
+      "weekly": {"cron": "19 14 * * 1", "lookback_hours": 170}
+    }
+
 permissions:
   contents: read
 
 concurrency:
+  # All groups share state. Serialize pipeline runs, including manual sends.
   group: oss-notifier-agent
   cancel-in-progress: false
+  queue: max
 
 jobs:
   notify:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Update the deduplication ledger on notifier-state.
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -39,15 +61,35 @@ jobs:
         run: uv sync --group dev
 
       - name: Run digest
+        shell: bash
         run: |
           [[ -n "$ANTHROPIC_BASE_URL" ]] || unset ANTHROPIC_BASE_URL
           [[ -n "$ANTHROPIC_AUTH_TOKEN" ]] || unset ANTHROPIC_AUTH_TOKEN
-          args=()
+
+          groups=$(jq -er 'keys | join(",")' <<< "$MONITOR_SCHEDULES")
+          args=(--github-state --known-groups "$groups")
+          if [[ "$TRIGGER_EVENT" == "schedule" || -n "$MONITOR_GROUP" ]]; then
+            if ! route=$(jq -er --arg event "$TRIGGER_EVENT" --arg cron "$TRIGGER_CRON" \
+              --arg group "$MONITOR_GROUP" '
+                first(to_entries[] | select(
+                  if $event == "schedule" then .value.cron == $cron else .key == $group end
+                )) | [.key, .value.lookback_hours] | @tsv
+              ' <<< "$MONITOR_SCHEDULES"); then
+              echo "Unknown schedule or monitoring group." >&2
+              exit 1
+            fi
+            IFS=$'\t' read -r group AGENT_SEARCH_WINDOW_HOURS <<< "$route"
+            export AGENT_SEARCH_WINDOW_HOURS
+            args+=(--group "$group")
+          fi
           if [[ "$DRY_RUN" == "true" ]]; then
             args+=(--dry-run)
           fi
           uv run --locked python -m agent.pipeline.run "${args[@]}"
         env:
+          TRIGGER_EVENT: ${{ github.event_name }}
+          TRIGGER_CRON: ${{ github.event.schedule }}
+          MONITOR_GROUP: ${{ inputs.group }}
           DRY_RUN: ${{ inputs.dry_run }}
           # Only the secret matching AGENT_MODEL's provider needs a real
           # value; the others can be left unset in this fork's secrets.

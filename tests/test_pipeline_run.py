@@ -38,8 +38,10 @@ class FakeGithubClient:
     def __init__(self, results_by_repo, raise_for=()):
         self.results_by_repo = results_by_repo
         self.raise_for = raise_for
+        self.searched = []
 
     async def search_issues(self, repo_config, pipeline_config, since_iso, max_body_chars):
+        self.searched.append(repo_config.repo)
         if repo_config.repo in self.raise_for:
             raise RuntimeError("simulated search failure")
         return self.results_by_repo.get(repo_config.repo, [])
@@ -255,3 +257,132 @@ async def test_main_dry_run_with_nothing_flagged(monkeypatch, capsys):
 
     output = capsys.readouterr().out
     assert "No good first issues found" in output
+
+
+@pytest.mark.parametrize(
+    ("group", "expected"),
+    [
+        ("veryfast", ["vllm-project/vllm", "sgl-project/sglang"]),
+        ("daily", ["a/b"]),
+        ("custom", ["c/d"]),
+        ("weekly", []),
+        (None, ["vllm-project/vllm", "sgl-project/sglang", "a/b", "c/d"]),
+    ],
+)
+async def test_main_scans_only_requested_group(monkeypatch, group, expected):
+    monkeypatch.setattr(
+        settings,
+        "pipeline_config",
+        """
+repositories:
+  - repo: vllm-project/vllm
+  - repo: sgl-project/sglang
+  - repo: a/b
+  - repo: c/d
+    schedule_group: custom
+""",
+    )
+    github = FakeGithubClient({})
+    monkeypatch.setattr(run_module, "GitHubIssuesClient", lambda: github)
+
+    await run_module.main(
+        dry_run=True,
+        group=group,
+        known_groups=["veryfast", "daily", "custom", "weekly"],
+    )
+
+    assert github.searched == expected
+
+
+async def test_main_rejects_unregistered_group_before_scanning(monkeypatch):
+    monkeypatch.setattr(
+        settings,
+        "pipeline_config",
+        "repositories: [{repo: a/b, schedule_group: wekly}]",
+    )
+    github = FakeGithubClient({})
+    monkeypatch.setattr(run_module, "GitHubIssuesClient", lambda: github)
+
+    with pytest.raises(ValueError, match="wekly"):
+        await run_module.main(group="daily", known_groups=["daily", "weekly"])
+
+    assert github.searched == []
+
+
+@pytest.mark.parametrize("mode", ["normal", "dry_run", "mail_failure", "state_failure"])
+async def test_github_state_filters_before_cap_and_records_only_accepted_mail(
+    monkeypatch, capsys, mode
+):
+    old, new = make_issue("a/b", 1), make_issue("a/b", 2)
+    monkeypatch.setattr(settings, "pipeline_config", "repositories: [{repo: a/b}]")
+    monkeypatch.setattr(settings, "max_issues_per_run", 1)
+    monkeypatch.setattr(settings, "github_token", "test-token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "test/notifier")
+    github = FakeGithubClient({"a/b": [old, new, new]})
+    monkeypatch.setattr(run_module, "GitHubIssuesClient", lambda: github)
+    sent = {old.html_url}
+    events = []
+
+    class FakeState:
+        def __init__(self, repository, token):
+            assert (repository, token) == ("test/notifier", "test-token")
+
+        async def load(self, *, dry_run):
+            events.append(("load", dry_run))
+            if mode == "state_failure":
+                raise RuntimeError("state operation failed")
+            return sent.copy()
+
+        async def mark_sent(self, urls):
+            urls = list(urls)
+            events.append(("mark_sent", urls))
+            sent.update(urls)
+
+        async def aclose(self):
+            events.append(("close",))
+
+    async def flag_issues(issues):
+        events.append(("triage", [issue.html_url for issue in issues]))
+        verdict = AgentOutput(
+            is_available=True, is_good_first_issue=True, reasoning="r", summary="s"
+        )
+        return [(issue, verdict) for issue in issues]
+
+    async def send_digest(flagged):
+        events.append(("send", [issue.html_url for issue, _ in flagged]))
+        if mode == "mail_failure":
+            raise RuntimeError("mail operation failed")
+
+    monkeypatch.setattr(run_module, "SentIssueStore", FakeState, raising=False)
+    monkeypatch.setattr(run_module, "triage_issues", flag_issues)
+    monkeypatch.setattr(run_module, "send_digest", send_digest)
+
+    if mode.endswith("_failure"):
+        with pytest.raises(RuntimeError, match="operation failed"):
+            await run_module.main(github_state=True)
+    else:
+        await run_module.main(dry_run=mode == "dry_run", github_state=True)
+
+    assert events[0] == ("load", mode == "dry_run")
+    assert events[-1] == ("close",)
+    if mode == "state_failure":
+        assert github.searched == []
+        assert len(events) == 2
+        return
+
+    assert events[1] == ("triage", [new.html_url])
+    if mode == "dry_run":
+        assert "Issue 2" in capsys.readouterr().out
+        assert len(events) == 3
+        return
+
+    assert events[2] == ("send", [new.html_url])
+    if mode == "mail_failure":
+        assert sent == {old.html_url}
+        assert len(events) == 4
+        return
+
+    assert events[3] == ("mark_sent", [new.html_url])
+    events.clear()
+    await run_module.main(github_state=True)
+    assert events == [("load", False), ("triage", []), ("close",)]

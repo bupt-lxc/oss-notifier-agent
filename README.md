@@ -67,16 +67,39 @@ For DashScope, set `AGENT_MODEL=dashscope` and set `DASHSCOPE_MODEL` to the mode
 in repository variables. For local runs, set the same names in the environment.
 
 For SMTP over TLS, also set the repository variable `SMTP_SERVER` (e.g. `smtp.163.com`).
-`SMTP_PORT` defaults to `465`. The manual trigger has a `dry_run` option to preview the digest.
+`SMTP_PORT` defaults to `465`.
 
-The schedule is a `cron:` trigger in `.github/workflows/notify.yml` (default: daily at 14:09 UTC,
-i.e. ~6am Pacific Standard Time — GitHub Actions cron is UTC-only with no DST support, so this
-drifts to ~7am Pacific during Pacific Daylight Time; the `:09` avoids the top-of-hour scheduling
-delay GitHub's own docs warn about) — edit it directly in your repo if you want a different
-cadence. **`AGENT_SEARCH_WINDOW_HOURS` (default 25h) is not derived from the cron
-schedule** — it's a separate, manually-set value. If you change the cron interval, update
-`AGENT_SEARCH_WINDOW_HOURS` to match (plus a small buffer): too small and issues created between
-runs are silently never searched.
+### Repository schedules
+
+Each repository in `AGENT_PIPELINE_CONFIG` can set one `schedule_group`. Configured
+`vllm-project/vllm` and `sgl-project/sglang` entries default to `veryfast`, and all other entries
+default to `daily`. An explicit group overrides either default.
+
+| Group | Cadence | UTC cron | Issue lookback |
+|---|---|---|---|
+| `veryfast` | Every 30 minutes | `7,37 * * * *` | 2 hours |
+| `fast` | Every hour | `11 * * * *` | 3 hours |
+| `normal` | Every 3 hours | `13 */3 * * *` | 5 hours |
+| `slow` | Every 12 hours | `17 */12 * * *` | 14 hours |
+| `daily` | Every day | `9 14 * * *` | 25 hours |
+| `weekly` | Every Monday | `19 14 * * 1` | 170 hours |
+
+To add a custom group, add a unique cron under `on.schedule` and its group and lookback under
+`MONITOR_SCHEDULES` in [notify.yml](.github/workflows/notify.yml). Set `schedule_group` on its
+repository entries. Use a lowercase name with letters, digits, or hyphens, starting with a letter.
+Give the lookback a buffer for delayed runs.
+
+On manual Actions runs, select a `group` to use its lookback, or leave it blank to scan all
+repositories with the usual 25-hour window. Set `dry_run` to preview without sending or writing
+notification history.
+
+Actions runs share `sent-issues.json` on the `notifier-state` branch, created automatically on the
+first real run with configured repositories. The notify job uses `contents: write` for this branch.
+The file records Issue URLs and send times, so it is visible on public notifier repositories.
+The pipeline skips recorded Issues before triage and updates the file after the mail provider
+accepts a digest. If a run stops between acceptance and recording, a later scan may resend the
+digest. The first run starts with empty history unless you seed the state file with previously sent
+Issue URLs and their timestamps.
 
 ## Local development
 
@@ -106,6 +129,9 @@ uv run python -m agent.pipeline.run
 # only email delivery is skipped
 uv run python -m agent.pipeline.run --dry-run
 
+# Preview one group locally with the configured local lookback
+uv run python -m agent.pipeline.run --group veryfast --dry-run
+
 # Lint
 uv run ruff check .
 
@@ -130,6 +156,7 @@ agent/
     ├── models.py            # Issue model
     ├── github_client.py     # GitHub Search API client
     ├── email.py              # SMTP or Postmark digest delivery
+    ├── sent_state.py         # Shared GitHub Actions notification history
     └── run.py                 # Entrypoint: uv run python -m agent.pipeline.run
 
 tests/    # Unit tests against TestModel and mocked HTTP — no API calls, no API key needed
@@ -156,7 +183,7 @@ variables directly.
 | `GITHUB_TOKEN` | unset | GitHub Search API auth. Provided automatically in Actions; optional (rate-limited) locally. |
 | `AGENT_PIPELINE_CONFIG` | — | Required. YAML repo watch list — see [Use this template](#use-this-template). |
 | `POSTMARK_SERVER_TOKEN` / `AGENT_EMAIL_FROM` / `AGENT_EMAIL_TO` | — | Required to actually send the digest email. |
-| `AGENT_SEARCH_WINDOW_HOURS` | `25` | How far back each run searches for newly created issues. Set independently of the cron schedule — see [Use this template](#use-this-template). |
+| `AGENT_SEARCH_WINDOW_HOURS` | `25` | Search lookback for local and full manual runs. Scheduled and group-specific Actions runs use the group's lookback. |
 | `AGENT_MAX_ISSUE_BODY_CHARS` | `4000` | Body characters used to assess beginner suitability. Availability checks also consider the rest of the body and the discussion. |
 | `AGENT_MAX_ISSUES_PER_RUN` | `30` | Cost guardrail across the whole run, on top of the triage agent's own `USAGE_LIMITS`. |
 

@@ -82,10 +82,8 @@ class Settings(BaseSettings):
     smtp_port: int = Field(default=465, ge=1, le=65535, validation_alias="SMTP_PORT")
     smtp_email: str | None = Field(default=None, validation_alias="SMTP_EMAIL")
     smtp_password: SecretStr | None = Field(default=None, validation_alias="SMTP_PASSWORD")
-    # Default cron cadence (notify.yml) is daily — this is set a bit above
-    # 24h rather than exactly 24h so a run that's delayed or skipped doesn't
-    # silently drop issues created in the gap. Not derived from the cron
-    # schedule automatically; keep the two in sync by hand if you change one.
+    # Default for local and full manual runs. Group-specific Actions runs
+    # override this with the corresponding lookback in notify.yml.
     search_window_hours: int = 25
     max_issue_body_chars: int = 4000
     max_issues_per_run: int = 30
