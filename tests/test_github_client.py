@@ -108,7 +108,9 @@ async def test_search_preserves_full_availability_evidence_for_triage(repo_confi
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/search/issues":
-            return httpx.Response(200, json={"items": [item]})
+            return httpx.Response(
+                200, json={"items": [] if "is:pr" in request.url.params["q"] else [item]}
+            )
         if request.url.params.get("page") != "2":
             next_page = request.url.copy_merge_params({"page": 2})
             return httpx.Response(
@@ -157,6 +159,142 @@ async def test_search_preserves_full_availability_evidence_for_triage(repo_confi
             "author_association": "MEMBER",
             "body": "Use the verified patch above; a PR is welcome.",
         },
+    ]
+
+
+@pytest.mark.parametrize("merged", [False, True], ids=["open-on-page-two", "referenced-merged"])
+async def test_search_attaches_unlinked_author_pr_evidence(repo_config, pipeline_config, merged):
+    repo_path = "/repos/octocat/example-repo"
+    pull_url = "https://github.com/octocat/example-repo/pull/42"
+    merged_at = "2026-07-19T12:00:00Z" if merged else None
+    pull = {
+        "number": 42,
+        "state": "closed" if merged else "open",
+        "merged_at": merged_at,
+        "title": "Fix response buffering",
+        "body": "Build a response from decoded frames.",
+        "html_url": pull_url,
+        "user": {"login": "REPORTER"},
+    }
+    items = [{**item, "user": {"login": "reporter"}} for item in SEARCH_RESPONSE["items"]]
+    items[0]["body"] += f"\n\nRelated PR: {pull_url}"
+    change = "+ decoder.raw_decode(buffer)"
+    feature_commit = "a" * 40
+    merge_commit = "b" * 40
+    paths = []
+    pr_queries = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        paths.append(path)
+        if path == "/search/issues":
+            query = request.url.params["q"]
+            if "is:pr" not in query:
+                return httpx.Response(200, json={"items": items})
+            pr_queries.append(query)
+            assert "author:reporter" in query and "repo:octocat/example-repo" in query
+            if "is:merged" in query:
+                return httpx.Response(200, json={"items": []})
+            if request.url.params.get("page") == "2":
+                return httpx.Response(200, json={"items": [] if merged else [pull]})
+            next_page = request.url.copy_merge_params({"page": 2})
+            other = {**pull, "number": 43, "state": "open", "user": {"login": "someone-else"}}
+            return httpx.Response(
+                200, json={"items": [other]}, headers={"Link": f'<{next_page}>; rel="next"'}
+            )
+        if path.endswith("/timeline"):
+            return httpx.Response(200, json=[])
+        if path == f"{repo_path}/pulls/42":
+            assert merged
+            return httpx.Response(200, json=pull)
+        if path == f"{repo_path}/pulls/42/commits":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "sha": feature_commit,
+                        "author": {"login": "REPORTER"},
+                        "parents": [{"sha": "c" * 40}],
+                    },
+                    {"sha": merge_commit, "author": {"login": "REPORTER"}, "parents": [{}, {}]},
+                ],
+            )
+        assert path == f"{repo_path}/commits/{feature_commit}"
+        return httpx.Response(200, json={"files": [{"filename": "proxy.py", "patch": change}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = GitHubIssuesClient(http_client)
+        found = await client.search_issues(repo_config, pipeline_config, "2026-07-19T00:00:00Z", 16)
+
+    assert len(found) == 2
+    first, second = [
+        json.loads(render_issue_prompt(issue))["author_pull_requests"] for issue in found
+    ]
+    assert len(first) == 1
+    assert first[0]["html_url"] == pull_url
+    assert first[0]["state"] == ("merged" if merged else "open")
+    assert "proxy.py" in first[0]["patch_excerpt"] and change in first[0]["patch_excerpt"]
+    assert [entry["html_url"] for entry in second] == ([] if merged else [pull_url])
+    assert len(pr_queries) == 3
+    assert paths.count(f"{repo_path}/pulls/42/commits") == 1
+
+
+async def test_search_skips_author_when_open_prs_cannot_be_checked(repo_config, pipeline_config):
+    items = [
+        {**SEARCH_RESPONSE["items"][0], "user": {"login": "reporter"}},
+        SEARCH_RESPONSE["items"][1],
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/search/issues":
+            if "is:pr" in request.url.params["q"]:
+                return httpx.Response(403)
+            return httpx.Response(200, json={"items": items})
+        assert request.url.path.endswith("/timeline")
+        return httpx.Response(200, json=[])
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = GitHubIssuesClient(http_client)
+        found = await client.search_issues(
+            repo_config, pipeline_config, "2026-07-19T00:00:00Z", 4000
+        )
+
+    assert [issue.html_url for issue in found] == [items[1]["html_url"]]
+
+
+async def test_search_includes_recently_merged_author_pr_without_a_link(
+    repo_config, pipeline_config
+):
+    item = {**SEARCH_RESPONSE["items"][0], "user": {"login": "reporter"}}
+    pull = {
+        "number": 42,
+        "state": "closed",
+        "pull_request": {"merged_at": "2026-07-20T00:10:00Z"},
+        "title": "Correct spelling in contribution guide",
+        "html_url": "https://github.com/octocat/example-repo/pull/42",
+        "user": {"login": "reporter"},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/timeline"):
+            return httpx.Response(200, json=[])
+        assert request.url.path == "/search/issues"
+        query = request.url.params["q"]
+        if "is:pr" not in query:
+            return httpx.Response(200, json={"items": [item]})
+        if "is:open" in query:
+            return httpx.Response(200, json={"items": []})
+        assert "is:merged merged:>=2026-07-19T00:00:00Z" in query
+        return httpx.Response(200, json={"items": [pull]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = GitHubIssuesClient(http_client)
+        found = await client.search_issues(
+            repo_config, pipeline_config, "2026-07-19T00:00:00Z", 4000
+        )
+
+    assert [(pr.html_url, pr.state) for pr in found[0].author_pull_requests] == [
+        (pull["html_url"], "merged")
     ]
 
 

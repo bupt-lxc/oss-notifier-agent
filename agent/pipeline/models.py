@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 # Leave room under the triage agent's token budget without dropping evidence.
@@ -14,6 +16,17 @@ class IssueComment(BaseModel):
     author: str
     author_association: str
     body: str
+
+
+class AuthorPullRequest(BaseModel):
+    """A PR in the issue's repository submitted by the same GitHub account."""
+
+    title: str
+    body: str
+    html_url: str
+    state: Literal["open", "merged"]
+    merged_at: str | None = None
+    patch_excerpt: str = ""
 
 
 class Issue(BaseModel):
@@ -29,3 +42,4 @@ class Issue(BaseModel):
     author: str = ""
     body_remainder: str = ""
     comments: list[IssueComment] = Field(default_factory=list)
+    author_pull_requests: list[AuthorPullRequest] = Field(default_factory=list)

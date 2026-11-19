@@ -41,11 +41,13 @@ def render_issue_prompt(issue: Issue) -> str:
             "title": issue.title,
             "labels": issue.labels,
             "url": issue.html_url,
+            "created_at": issue.created_at,
             "issue_author": issue.author,
             "body": issue.body,
             "body_truncated": issue.truncated,
             "body_remainder": issue.body_remainder,
             "comments": [comment.model_dump() for comment in issue.comments],
+            "author_pull_requests": [pull.model_dump() for pull in issue.author_pull_requests],
         },
         ensure_ascii=False,
     )

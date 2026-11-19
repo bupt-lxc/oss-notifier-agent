@@ -3,8 +3,8 @@
 One agent, one task — this run is called once per candidate issue by
 agent/pipeline/run.py. It does no fetching, filtering, or emailing itself;
 that's deterministic Python (see agent/pipeline/). The agent interprets
-the issue and its discussion to decide whether it is available and approachable
-for a first-time contributor.
+the issue, its discussion, and the author's pull requests to decide whether it
+is available and approachable for a first-time contributor.
 """
 
 from __future__ import annotations
@@ -35,15 +35,18 @@ class AgentOutput(BaseModel):
     """Triage verdict for a single issue."""
 
     is_available: bool = Field(
-        description="False for RFCs, explicitly void issues, active claims, or a ready-to-submit fix provided by the issue author or a maintainer."
+        description=(
+            "False for RFCs, explicitly void issues, active claims, a ready-to-submit fix from "
+            "the author or a maintainer, or a matching open or merged PR from the issue author."
+        )
     )
     is_good_first_issue: bool
-    reasoning: str = Field(description="用一句简体中文，依据 Issue 正文或评论说明判断理由。")
+    reasoning: str = Field(description="用一句简体中文，依据 Issue 正文、评论或 PR 说明判断理由。")
     summary: str = Field(description="用两句简体中文分别概述需要改动的内容，以及可以从哪里着手。")
 
 
 # --- Dependencies ---
-# No external dependencies — the agent only reasons over the issue text
+# No external dependencies — the agent only reasons over the evidence
 # passed in the prompt.
 @dataclass
 class AgentDeps:

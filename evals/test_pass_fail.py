@@ -11,7 +11,7 @@ from pydantic_evals import Case, Dataset
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext
 
 from agent.agents import run_agent
-from agent.pipeline.models import Issue, IssueComment
+from agent.pipeline.models import AuthorPullRequest, Issue, IssueComment
 from agent.prompts.templates import render_issue_prompt
 
 TYPO_FIX_ISSUE = (
@@ -127,6 +127,92 @@ async def test_agent_checks_issue_availability(body_remainder, discussion, expec
     assert output.is_available is expected, output.reasoning
     if not expected:
         assert not output.is_good_first_issue
+
+
+FORMATTER_TRAILING_SPACE_BODY = (
+    "In formatter.py, format_line leaves spaces before a newline. For example, "
+    "`alpha  \\n` should become `alpha\\n`."
+)
+
+
+@pytest.mark.eval
+@pytest.mark.parametrize(
+    ("body", "pull_request", "expected"),
+    [
+        pytest.param(
+            FORMATTER_TRAILING_SPACE_BODY,
+            {
+                "title": "Normalize output from exported documents",
+                "body": "Strip horizontal whitespace immediately before newlines in format_line, "
+                "while preserving the newlines. Adds a focused formatter regression test.",
+                "state": "open",
+            },
+            False,
+            id="open-pr-with-different-title",
+        ),
+        pytest.param(
+            FORMATTER_TRAILING_SPACE_BODY,
+            {
+                "title": "Prepare document export for the next release",
+                "body": "Internal cleanup and UI updates.",
+                "state": "merged",
+                "merged_at": "2026-07-21T00:00:00Z",
+                "patch_excerpt": "diff --git a/formatter.py b/formatter.py\n"
+                "--- a/formatter.py\n+++ b/formatter.py\n@@ -1,2 +1,2 @@\n"
+                " def format_line(s):\n-    return s\n"
+                '+    return re.sub(r"[ \\t]+(?=\\n)", "", s)',
+            },
+            False,
+            id="same-fix-in-merged-pr-patch",
+        ),
+        pytest.param(
+            FORMATTER_TRAILING_SPACE_BODY,
+            {
+                "title": "Fix leading indentation in format_line",
+                "body": "Adjust format_line in formatter.py to preserve the four leading spaces "
+                "at the beginning of Markdown code blocks.",
+                "state": "open",
+            },
+            True,
+            id="same-component-different-problem",
+        ),
+        pytest.param(
+            "PR #42 made format_line trim trailing whitespace before newlines. "
+            "Version 1.12 introduced a CRLF reader and reintroduced the bug for Windows input. "
+            "In formatter.py, `alpha  \\r\\n` should become `alpha\\r\\n`.",
+            {
+                "title": "Trim whitespace before line endings",
+                "body": "Strip spaces immediately before LF in format_line, while preserving LF.",
+                "state": "merged",
+                "merged_at": "2026-06-01T00:00:00Z",
+            },
+            True,
+            id="merged-pr-precedes-regression",
+        ),
+    ],
+)
+async def test_agent_compares_issue_to_author_pr(body, pull_request, expected):
+    issue = Issue(
+        repo="octocat/example-repo",
+        title="Formatter leaves trailing whitespace",
+        body=body,
+        labels=["good first issue"],
+        html_url="https://github.com/octocat/example-repo/issues/1",
+        created_at="2026-07-20T00:00:00Z",
+        author="reporter",
+        author_pull_requests=[
+            AuthorPullRequest(
+                html_url="https://github.com/octocat/example-repo/pull/42", **pull_request
+            )
+        ],
+    )
+
+    output = await run_agent(render_issue_prompt(issue))
+
+    assert output.is_available is expected, output.reasoning
+    assert output.is_good_first_issue is expected, output.reasoning
+    if not expected:
+        assert "42" in output.reasoning, output.reasoning
 
 
 # --- Dataset eval driven by evals/fixtures/triage_cases.json ---
