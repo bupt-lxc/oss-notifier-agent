@@ -1,12 +1,15 @@
-"""Data models for the GitHub issue ingestion pipeline."""
+"""Data models for issue ingestion and triage."""
 
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+# Leave room under the triage agent's token budget without dropping evidence.
+MAX_ISSUE_CONTEXT_CHARS = 12_000
+
 
 class IssueComment(BaseModel):
-    """A timeline comment with author metadata supplied by GitHub."""
+    """A discussion comment with author metadata supplied by the hosting platform."""
 
     author: str
     author_association: str
@@ -14,7 +17,7 @@ class IssueComment(BaseModel):
 
 
 class Issue(BaseModel):
-    """A GitHub issue with the discussion needed to check availability."""
+    """An issue with the discussion needed to check availability."""
 
     repo: str
     title: str

@@ -8,15 +8,13 @@ from agent.config import settings
 from agent.logging import get_logger
 from agent.pipeline.claims import has_active_claim
 from agent.pipeline.config import PipelineConfig, RepoConfig
-from agent.pipeline.models import Issue, IssueComment
+from agent.pipeline.models import MAX_ISSUE_CONTEXT_CHARS, Issue, IssueComment
 
 logger = get_logger(__name__)
 
 API_URL = "https://api.github.com"
 SEARCH_URL = f"{API_URL}/search/issues"
 PER_PAGE = 50
-# Leave room under the triage agent's token budget without dropping evidence.
-MAX_ISSUE_CONTEXT_CHARS = 12_000
 
 
 class GitHubIssuesClient:

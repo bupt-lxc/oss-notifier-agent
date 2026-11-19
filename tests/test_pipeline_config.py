@@ -57,6 +57,12 @@ def test_repo_config_requires_repo_field():
         ("octocat/example", {}, "daily"),
         ("vllm-project/vllm", {"schedule_group": "weekly"}, "weekly"),
         ("octocat/example", {"schedule_group": "custom-group"}, "custom-group"),
+        ("https://gitcode.com/Ascend/MindIE-Motor", {}, "fast"),
+        ("ascend/mindie-motor", {"platform": "gitcode"}, "fast"),
+        ("Ascend/MindIE-Motor", {}, "daily"),
+        ("Ascend/other", {"platform": "gitcode"}, "daily"),
+        ("https://gitcode.com/vllm-project/vllm", {}, "daily"),
+        ("https://gitcode.com/Ascend/MindIE-Motor", {"schedule_group": "weekly"}, "weekly"),
     ],
 )
 def test_repo_resolves_monitoring_group(repo, group_override, expected):

@@ -7,13 +7,16 @@ import html
 import smtplib
 import ssl
 from email.message import EmailMessage
+from typing import TYPE_CHECKING
 
 import httpx
 
-from agent.agents.single import AgentOutput
 from agent.config import settings
 from agent.logging import get_logger
 from agent.pipeline.models import Issue
+
+if TYPE_CHECKING:
+    from agent.agents import AgentOutput
 
 logger = get_logger(__name__)
 

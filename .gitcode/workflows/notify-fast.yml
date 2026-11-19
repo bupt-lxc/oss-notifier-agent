@@ -1,0 +1,21 @@
+name: OSS Notifier Agent (Hourly)
+
+on:
+  schedule:
+    - cron: "11 * * * *"
+
+permissions:
+  repository: read
+
+concurrency:
+  enable: true
+  max: 1
+  exceed-action: QUEUE
+
+jobs:
+  fast:
+    uses: ./.gitcode/workflows/notify-scan.yml
+    with:
+      schedule_group: fast
+      lookback_hours: 3
+    secrets: inherit

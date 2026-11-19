@@ -11,13 +11,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 load_dotenv()
 
 
-class Settings(BaseSettings):
-    """Application settings loaded from environment variables.
-
-    Validated at startup: if the selected model's provider requires an API
-    key and it is missing, Settings() raises immediately with a clear error
-    instead of failing cryptically at the first API call.
-    """
+class RuntimeSettings(BaseSettings):
+    """Application settings shared by fetching, triage and delivery."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -69,10 +64,11 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
-    # --- Pipeline-specific settings (GitHub Good-First-Issue Digest agent) ---
+    # --- Pipeline-specific settings ---
     # GITHUB_TOKEN keeps its standard, unprefixed name because it's the exact
     # variable GitHub Actions injects automatically for every workflow run.
     github_token: str | None = Field(default=None, validation_alias="GITHUB_TOKEN")
+    gitcode_token: SecretStr | None = Field(default=None, validation_alias="GITCODE_TOKEN")
     postmark_server_token: str | None = Field(
         default=None, validation_alias="POSTMARK_SERVER_TOKEN"
     )
@@ -97,8 +93,7 @@ class Settings(BaseSettings):
     # Actual YAML/schema validation happens lazily in agent/pipeline/config.py.
     pipeline_config: str | None = None
 
-    @model_validator(mode="after")
-    def check_provider_key(self) -> "Settings":
+    def check_provider_key(self) -> None:
         """Fail fast if the selected model's provider key is missing.
 
         Only the agent model is validated here — the judge model is used
@@ -127,7 +122,15 @@ class Settings(BaseSettings):
                 "Add it to .env or the environment."
             )
         # "ollama" (and other local providers) run locally — no API key needed.
+
+
+class Settings(RuntimeSettings):
+    """Application settings with model provider credentials validated."""
+
+    @model_validator(mode="after")
+    def validate_provider_key(self) -> "Settings":
+        self.check_provider_key()
         return self
 
 
-settings = Settings()
+settings = RuntimeSettings()

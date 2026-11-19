@@ -58,7 +58,8 @@ _RELEASE = re.compile(
 )
 
 
-def _sentences(text: str) -> Iterator[str]:
+def unquoted_sentences(text: str) -> Iterator[str]:
+    """Yield statements outside quotes, code examples, and hypothetical language."""
     for line in _CODE_BLOCK.sub("\n", text).splitlines():
         if line.lstrip().startswith(">") or line.startswith(("    ", "\t")):
             continue
@@ -81,7 +82,7 @@ def has_active_claim(comments: Iterable[tuple[str, str]]) -> bool:
     claimants: set[str] = set()
     for author, text in comments:
         login = author.casefold()
-        for sentence in _sentences(text):
+        for sentence in unquoted_sentences(text):
             if login and _RELEASE.match(sentence) and not sentence.endswith(("?", "？")):
                 claimants.discard(login)
             elif _matches_claim(sentence):

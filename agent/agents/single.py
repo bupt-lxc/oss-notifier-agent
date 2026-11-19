@@ -1,4 +1,4 @@
-"""Triage agent: assesses the availability and beginner scope of a GitHub issue.
+"""Triage agent: assesses an issue's availability and beginner scope.
 
 One agent, one task — this run is called once per candidate issue by
 agent/pipeline/run.py. It does no fetching, filtering, or emailing itself;
@@ -17,7 +17,7 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.alibaba import AlibabaProvider
 from pydantic_ai.usage import UsageLimits
 
-from agent.config import Settings, settings
+from agent.config import RuntimeSettings, settings
 from agent.logging import configure_logging, get_logger
 from agent.prompts.templates import load_prompt
 
@@ -32,10 +32,10 @@ USAGE_LIMITS = UsageLimits(request_limit=3, total_tokens_limit=20_000)
 
 # --- Output type ---
 class AgentOutput(BaseModel):
-    """Triage verdict for a single GitHub issue."""
+    """Triage verdict for a single issue."""
 
     is_available: bool = Field(
-        description="False for an active claim or when the author or a maintainer supplied a complete fix and says a PR can be submitted."
+        description="False for RFCs, explicitly void issues, active claims, or a ready-to-submit fix provided by the issue author or a maintainer."
     )
     is_good_first_issue: bool
     reasoning: str = Field(description="用一句简体中文，依据 Issue 正文或评论说明判断理由。")
@@ -52,7 +52,8 @@ class AgentDeps:
     pass
 
 
-def _build_model(config: Settings) -> str | OpenAIChatModel:
+def _build_model(config: RuntimeSettings) -> str | OpenAIChatModel:
+    config.check_provider_key()
     if config.model != "dashscope":
         return config.model
 

@@ -1,0 +1,45 @@
+name: OSS Notifier Agent
+
+on:
+  schedule:
+    - cron: "9 14 * * *"
+  workflow_dispatch:
+    inputs:
+      fetch_only:
+        description: Fetch repository activity without calling the model or sending email
+        type: boolean
+        default: true
+      dry_run:
+        description: Generate a preview without sending email when fetch_only is off
+        type: boolean
+        default: false
+      gitcode_repo:
+        description: Optional GitCode owner/repo to query during a fetch-only run
+        type: string
+        default: ""
+
+permissions:
+  repository: read
+
+concurrency:
+  enable: true
+  max: 1
+  exceed-action: QUEUE
+
+jobs:
+  daily:
+    if: ${{ atomgit.event_name == 'Scheduler' || atomgit.event_name == 'schedule' }}
+    uses: ./.gitcode/workflows/notify-scan.yml
+    with:
+      schedule_group: daily
+      lookback_hours: 25
+    secrets: inherit
+
+  manual:
+    if: ${{ atomgit.event_name == 'Manual' || atomgit.event_name == 'workflow_dispatch' }}
+    uses: ./.gitcode/workflows/notify-scan.yml
+    with:
+      fetch_only: ${{ inputs.fetch_only }}
+      dry_run: ${{ inputs.dry_run }}
+      gitcode_repo: ${{ inputs.gitcode_repo }}
+    secrets: inherit

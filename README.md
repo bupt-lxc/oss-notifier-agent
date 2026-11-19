@@ -2,18 +2,18 @@
 
 [![CI](https://github.com/tmtabor/oss-notifier-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/tmtabor/oss-notifier-agent/actions/workflows/ci.yml)
 
-Scans a configured list of GitHub repositories on a schedule. Skips issues with an assignee, a
-linked or referencing pull request, or a clear claim in the issue or its comments. An LLM reads
-the remaining issues and their discussion to assess beginner suitability and exclude active claims
-or complete fixes that the issue author or a maintainer has said can be submitted as a PR. The
-pipeline emails a digest of the matches.
-Runs entirely on GitHub Actions.
+Scans a configured list of GitHub or GitCode repositories on a schedule. Skips RFCs, issues
+explicitly marked void or withdrawn, and issues with an assignee, a linked pull request, or a
+clear claim. An LLM reads the remaining issues and their discussion to assess beginner
+suitability and exclude active claims or complete fixes that the issue author or a maintainer
+has said can be submitted as a PR. The pipeline emails a digest of the matches.
+Runs on GitHub Actions or AtomGit Action.
 
 Built on [agent-template](https://github.com/tmtabor/agent-template).
 
 **This is a GitHub template repository.** Click **Use this template** to create your own copy.
-No instance-specific configuration — your repo watch list, labels, search terms, or credentials —
-should ever be committed. Configure your copy through GitHub Actions secrets and variables; see
+Keep your custom repo watch list, labels, search terms, and credentials in Actions secrets and
+variables. For GitHub setup, see
 [Use this template](#use-this-template) below.
 
 ## Stack
@@ -21,17 +21,16 @@ should ever be committed. Configure your copy through GitHub Actions secrets and
 - Pydantic AI v2 (agents) + pydantic-evals (evals)
 - Logfire (observability)
 - pytest + pytest-asyncio
-- GitHub Actions (scheduling), GitHub Search API (ingestion), SMTP or Postmark (email delivery)
+- GitHub Actions or AtomGit Action (scheduling), GitHub Search API and GitCode OpenAPI (ingestion), SMTP or Postmark (email delivery)
 
 ## How it works
 
 ```
-GitHub Search API → timeline and filters → [triage agent, one call per issue] → digest builder → SMTP or Postmark
+GitHub or GitCode API → discussion and filters → [triage agent, one call per issue] → digest builder → SMTP or Postmark
 ```
 
 The triage agent (`agent/agents/single.py`) checks availability and beginner suitability in one
-call. The pipeline skips an issue if GitHub's timeline is unavailable or the full discussion
-exceeds the triage budget.
+call. The pipeline skips issues whose full discussion exceeds the triage budget.
 
 ## Use this template
 
@@ -71,9 +70,11 @@ For SMTP over TLS, also set the repository variable `SMTP_SERVER` (e.g. `smtp.16
 
 ### Repository schedules
 
-Each repository in `AGENT_PIPELINE_CONFIG` can set one `schedule_group`. Configured
-`vllm-project/vllm` and `sgl-project/sglang` entries default to `veryfast`, and all other entries
-default to `daily`. An explicit group overrides either default.
+Each repository entry can set one `schedule_group`. The GitHub repositories `vllm-project/vllm`
+and `sgl-project/sglang` default to `veryfast`. The GitCode repository `Ascend/MindIE-Motor`
+defaults to `fast`. Other entries default to `daily`. An explicit group overrides the default.
+Plain `owner/name` entries default to GitHub. Use a GitCode repository URL or set
+`platform: gitcode` on an `owner/name` entry to watch it on GitCode.
 
 | Group | Cadence | UTC cron | Issue lookback |
 |---|---|---|---|
@@ -84,22 +85,62 @@ default to `daily`. An explicit group overrides either default.
 | `daily` | Every day | `9 14 * * *` | 25 hours |
 | `weekly` | Every Monday | `19 14 * * 1` | 170 hours |
 
-To add a custom group, add a unique cron under `on.schedule` and its group and lookback under
+GitHub Actions runs these six groups for GitHub entries. To add a custom group, add a unique
+cron under `on.schedule` and its group and lookback under
 `MONITOR_SCHEDULES` in [notify.yml](.github/workflows/notify.yml). Set `schedule_group` on its
 repository entries. Use a lowercase name with letters, digits, or hyphens, starting with a letter.
 Give the lookback a buffer for delayed runs.
 
-On manual Actions runs, select a `group` to use its lookback, or leave it blank to scan all
-repositories with the usual 25-hour window. Set `dry_run` to preview without sending or writing
+On manual GitHub Actions runs, select a `group` to use its lookback, or leave it blank to scan all
+GitHub entries with the usual 25-hour window. Set `dry_run` to preview without sending or writing
 notification history.
 
-Actions runs share `sent-issues.json` on the `notifier-state` branch, created automatically on the
+GitHub Actions runs share `sent-issues.json` on the `notifier-state` branch, created automatically on the
 first real run with configured repositories. The notify job uses `contents: write` for this branch.
 The file records Issue URLs and send times, so it is visible on public notifier repositories.
 The pipeline skips recorded Issues before triage and updates the file after the mail provider
 accepts a digest. If a run stops between acceptance and recording, a later scan may resend the
 digest. The first run starts with empty history unless you seed the state file with previously sent
 Issue URLs and their timestamps.
+
+## Run on GitCode (AtomGit)
+
+1. Create or reuse an AtomGit repository for the notifier and push the code with
+   the `.gitcode/workflows/` directory on its default branch. The pipeline capability may require
+   activation. See the [AtomGit Action quickstart](https://docs.gitcode.com/docs/help/home/org_project/pipeline/quick-start/).
+2. In **Pipeline / Actions**, manually run **OSS Notifier Agent** with `gitcode_repo` set to
+   `Ascend/MindIE-Motor` and `fetch_only` enabled. This checks public issues and shows the candidate
+   links in the job log. It needs neither model nor email credentials.
+3. Set `GITCODE_PIPELINE_CONFIG` in **Project settings → Actions secrets and variables** to
+   customize the native watch list. The workflow falls back to `AGENT_PIPELINE_CONFIG` and then
+   to the public `Ascend/MindIE-Motor` repository when both secrets are empty.
+4. Native schedules in [notify-fast.yml](.gitcode/workflows/notify-fast.yml) and
+   [notify.yml](.gitcode/workflows/notify.yml) scan `fast` hourly (3-hour lookback) and `daily`
+   once a day (25-hour lookback). To schedule another GitCode group, add a native workflow
+   that calls the shared scan in [notify-scan.yml](.gitcode/workflows/notify-scan.yml).
+5. Scheduled runs log candidates by default. To send scheduled email, configure the model
+   and mail provider and set `AGENT_SCHEDULED_EMAIL=true`. For a manual triage preview, set
+   `fetch_only=false` and `dry_run=true`. With both false, a manual run sends email.
+   Native GitCode email runs have no persistent deduplication and may resend Issues from
+   overlapping windows.
+
+```yaml
+repositories:
+  - repo: https://gitcode.com/Ascend/MindIE-Motor
+    schedule_group: fast
+  # Add other GitCode repositories here.
+```
+
+The native workflow scans GitCode entries. The GitHub Actions workflow scans GitHub entries.
+`GITCODE_TOKEN` is optional for public repositories. Set it as a secret for authenticated
+GitCode reads.
+
+To run a public scan from the GitCode CLI, leave `fetch_only` at its default and pass the
+repository path as a string input.
+
+```bash
+gitcode actions workflow run notify.yml -R owner/notifier --ref main -f gitcode_repo=Ascend/MindIE-Motor
+```
 
 ## Local development
 
@@ -129,8 +170,14 @@ uv run python -m agent.pipeline.run
 # only email delivery is skipped
 uv run python -m agent.pipeline.run --dry-run
 
-# Preview one group locally with the configured local lookback
-uv run python -m agent.pipeline.run --group veryfast --dry-run
+# Fetch and filter issues without model or mail credentials
+uv run python -m agent.pipeline.run --fetch-only
+
+# Preview one GitHub group with the configured local lookback
+uv run python -m agent.pipeline.run --platform github --group veryfast --dry-run
+
+# Fetch the GitCode fast group with the native schedule's 3-hour lookback
+AGENT_SEARCH_WINDOW_HOURS=3 uv run python -m agent.pipeline.run --platform gitcode --group fast --fetch-only
 
 # Lint
 uv run ruff check .
@@ -143,7 +190,7 @@ uv run ruff format .
 
 ```
 agent/
-├── config.py           # Settings — validates the provider API key at import time (raises if missing)
+├── config.py           # Runtime settings and model provider key validation
 ├── logging.py           # Logfire setup — configure_logging(), get_logger()
 ├── agents/
 │   ├── __init__.py       #   canonical names (run_agent, AgentOutput, …)
@@ -155,6 +202,7 @@ agent/
     ├── config.py           # Pipeline config loading (AGENT_PIPELINE_CONFIG env var / secret)
     ├── models.py            # Issue model
     ├── github_client.py     # GitHub Search API client
+    ├── gitcode_client.py    # GitCode OpenAPI client
     ├── email.py              # SMTP or Postmark digest delivery
     ├── sent_state.py         # Shared GitHub Actions notification history
     └── run.py                 # Entrypoint: uv run python -m agent.pipeline.run
@@ -163,7 +211,11 @@ tests/    # Unit tests against TestModel and mocked HTTP — no API calls, no AP
 evals/    # Pass/fail + dataset + LLM-as-judge evals — real API calls, run with -m eval
 .github/workflows/
 ├── ci.yml       # CI: ruff check, format check, unit tests (no secrets needed)
-└── notify.yml    # The scheduled digest run (needs the secrets above)
+└── notify.yml    # GitHub schedules and manual runs
+.gitcode/workflows/
+├── notify.yml       # GitCode daily schedule and manual runs
+├── notify-fast.yml  # GitCode hourly schedule
+└── notify-scan.yml  # Shared native GitCode scan
 ```
 
 ## Configuration
@@ -175,13 +227,15 @@ variables directly.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `GOOGLE_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | — | Required for whichever provider `AGENT_MODEL` uses. `Settings` validates this at import time and raises immediately if it's missing — not a lazy/runtime check. |
+| `GOOGLE_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | — | Required for whichever provider `AGENT_MODEL` uses during triage. Fetch-only runs need no model key. |
 | `AGENT_MODEL` | `google:gemini-3.1-flash-lite` | Per-issue triage is a cheap, high-volume classification task, so the default is a small/fast model. Any pydantic-ai model string works, including `ollama:*` for local models (no API key needed). |
 | `AGENT_JUDGE_MODEL` | `anthropic:claude-sonnet-5` | Used only by the LLM-as-judge evals. Kept on Anthropic regardless of `AGENT_MODEL` to avoid self-assessment bias. |
 | `LOGFIRE_TOKEN` | unset | If set, traces go to Logfire cloud. If unset, traces print to the console — no separate dev-mode flag needed. |
 | `AGENT_LOG_LEVEL` | `INFO` | Standard Python logging level. |
 | `GITHUB_TOKEN` | unset | GitHub Search API auth. Provided automatically in Actions; optional (rate-limited) locally. |
+| `GITCODE_TOKEN` | unset | Optional authentication for GitCode reads. |
 | `AGENT_PIPELINE_CONFIG` | — | Required. YAML repo watch list — see [Use this template](#use-this-template). |
+| `GITCODE_PIPELINE_CONFIG` | unset | Native AtomGit workflow secret for the GitCode watch list. |
 | `POSTMARK_SERVER_TOKEN` / `AGENT_EMAIL_FROM` / `AGENT_EMAIL_TO` | — | Required to actually send the digest email. |
 | `AGENT_SEARCH_WINDOW_HOURS` | `25` | Search lookback for local and full manual runs. Scheduled and group-specific Actions runs use the group's lookback. |
 | `AGENT_MAX_ISSUE_BODY_CHARS` | `4000` | Body characters used to assess beginner suitability. Availability checks also consider the rest of the body and the discussion. |
