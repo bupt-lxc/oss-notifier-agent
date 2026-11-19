@@ -18,6 +18,39 @@ on:
       gitcode_repo:
         type: string
         default: ""
+    secrets:
+      DASHSCOPE_API_KEY:
+        required: false
+      DASHSCOPE_URL:
+        required: false
+      GOOGLE_API_KEY:
+        required: false
+      ANTHROPIC_API_KEY:
+        required: false
+      ANTHROPIC_AUTH_TOKEN:
+        required: false
+      ANTHROPIC_BASE_URL:
+        required: false
+      OPENAI_API_KEY:
+        required: false
+      GITCODE_PIPELINE_CONFIG:
+        required: false
+      AGENT_PIPELINE_CONFIG:
+        required: false
+      SMTP_EMAIL:
+        required: false
+      SMTP_PASSWORD:
+        required: false
+      POSTMARK_SERVER_TOKEN:
+        required: false
+      AGENT_EMAIL_FROM:
+        required: false
+      AGENT_EMAIL_TO:
+        required: false
+      LOGFIRE_TOKEN:
+        required: false
+      GITCODE_TOKEN:
+        required: false
 
 permissions:
   repository: read
@@ -30,6 +63,12 @@ jobs:
       DASHSCOPE_MODEL: ${{ vars.DASHSCOPE_MODEL }}
       SMTP_SERVER: ${{ vars.SMTP_SERVER }}
       SMTP_PORT: ${{ vars.SMTP_PORT }}
+      SCHEDULE_GROUP: ${{ inputs.schedule_group }}
+      LOOKBACK_HOURS: ${{ inputs.lookback_hours }}
+      FETCH_ONLY_INPUT: ${{ inputs.fetch_only }}
+      DRY_RUN_INPUT: ${{ inputs.dry_run }}
+      GITCODE_REPO_INPUT: ${{ inputs.gitcode_repo }}
+      AGENT_SCHEDULED_EMAIL: ${{ vars.AGENT_SCHEDULED_EMAIL }}
     steps:
       - name: Check out the notifier
         uses: checkout
@@ -46,12 +85,6 @@ jobs:
       - name: Run digest
         shell: bash
         env:
-          SCHEDULE_GROUP: ${{ inputs.schedule_group }}
-          LOOKBACK_HOURS: ${{ inputs.lookback_hours }}
-          FETCH_ONLY_INPUT: ${{ inputs.fetch_only }}
-          DRY_RUN_INPUT: ${{ inputs.dry_run }}
-          GITCODE_REPO_INPUT: ${{ inputs.gitcode_repo }}
-          AGENT_SCHEDULED_EMAIL: ${{ vars.AGENT_SCHEDULED_EMAIL }}
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           DASHSCOPE_URL: ${{ secrets.DASHSCOPE_URL }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}

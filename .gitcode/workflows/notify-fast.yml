@@ -18,4 +18,20 @@ jobs:
     with:
       schedule_group: fast
       lookback_hours: 3
-    secrets: inherit
+    secrets:
+      DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+      DASHSCOPE_URL: ${{ secrets.DASHSCOPE_URL }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+      ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GITCODE_PIPELINE_CONFIG: ${{ secrets.GITCODE_PIPELINE_CONFIG }}
+      AGENT_PIPELINE_CONFIG: ${{ secrets.AGENT_PIPELINE_CONFIG }}
+      SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      POSTMARK_SERVER_TOKEN: ${{ secrets.POSTMARK_SERVER_TOKEN }}
+      AGENT_EMAIL_FROM: ${{ secrets.AGENT_EMAIL_FROM }}
+      AGENT_EMAIL_TO: ${{ secrets.AGENT_EMAIL_TO }}
+      LOGFIRE_TOKEN: ${{ secrets.LOGFIRE_TOKEN }}
+      GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}

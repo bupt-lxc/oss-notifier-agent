@@ -39,3 +39,19 @@ def test_gitcode_manual_workflow_keeps_fetch_only_default():
     caller = workflow["jobs"]["manual"]
     assert caller["uses"] == "./.gitcode/workflows/notify-scan.yml"
     assert set(caller["with"]) == inputs.keys()
+
+
+@pytest.mark.parametrize(
+    ("name", "job"),
+    [("notify.yml", "daily"), ("notify.yml", "manual"), ("notify-fast.yml", "fast")],
+)
+def test_gitcode_reusable_call_maps_secrets_explicitly(name, job):
+    caller = read_workflow(name)["jobs"][job]
+    shared = read_workflow("notify-scan.yml")
+    declared = shared["on"]["workflow_call"]["secrets"]
+    scan_env = shared["jobs"]["scan"]["steps"][-1]["env"]
+    expected = {key: value for key, value in scan_env.items() if value.startswith("${{ secrets.")}
+
+    assert caller["secrets"] == expected
+    assert declared == {key: {"required": "false"} for key in expected}
+    assert len(scan_env) <= 20  # AtomGit's step environment limit.
