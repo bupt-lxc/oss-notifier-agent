@@ -84,10 +84,12 @@ runs are silently never searched.
 2. In **Pipeline / Actions**, manually run **OSS Notifier Agent** with `gitcode_repo` set to
    `Ascend/MindIE-Motor` and `fetch_only` enabled. This checks public issues and shows the candidate
    links in the job log. It needs neither model nor email credentials.
-3. In **Project settings → Actions secrets and variables**, add `AGENT_PIPELINE_CONFIG` as a
-   secret, using the example below. Configure the model and email settings from the table above.
-   The workflow runs daily at 22:09 Beijing time. For a preview with model triage, manually run it
-   with `fetch_only=false` and `dry_run=true`.
+3. The workflow runs daily at 22:09 Beijing time. Before configuring the full digest, it scans
+   the public `Ascend/MindIE-Motor` repository and writes candidates to the job log.
+4. To enable the scheduled email digest and watch additional repositories, configure the model
+   and email settings from the table above, then add `AGENT_PIPELINE_CONFIG` as a secret in
+   **Project settings → Actions secrets and variables**. For a preview with model triage,
+   manually run it with `fetch_only=false` and `dry_run=true`.
 
 ```yaml
 repositories:

@@ -93,7 +93,13 @@ jobs:
             fetch_gitcode_repo="${manual_inputs[1]}"
           fi
           if [[ "$EVENT_NAME" == "Scheduler" || "$EVENT_NAME" == "schedule" ]]; then
-            notify_mode=email
+            if [[ -n "${AGENT_PIPELINE_CONFIG:-}" ]]; then
+              notify_mode=email
+            else
+              notify_mode=fetch
+              fetch_gitcode_repo=Ascend/MindIE-Motor
+              echo "Scheduled public issue scan: $fetch_gitcode_repo"
+            fi
           fi
           case "$notify_mode" in
             fetch)
