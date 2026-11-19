@@ -57,20 +57,23 @@ jobs:
           DRY_RUN_INPUT: ${{ inputs.dry_run }}
           GITCODE_REPO_INPUT: ${{ inputs.gitcode_repo }}
         run: |
+          mode=fetch
+          target=
           if [[ "${FETCH_ONLY_INPUT,,}" != "false" ]]; then
             if [[ -n "$GITCODE_REPO_INPUT" ]]; then
               if [[ ! "$GITCODE_REPO_INPUT" =~ ^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*/[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$ ]]; then
                 echo 'gitcode_repo must be a GitCode owner/repo path' >&2
                 exit 1
               fi
-              printf 'FETCH_GITCODE_REPO=%s\n' "$GITCODE_REPO_INPUT" >> "$ATOMGIT_ENV"
+              target="$GITCODE_REPO_INPUT"
             fi
-            echo 'NOTIFY_MODE=fetch' >> "$ATOMGIT_ENV"
           elif [[ "${DRY_RUN_INPUT,,}" == "true" ]]; then
-            echo 'NOTIFY_MODE=preview' >> "$ATOMGIT_ENV"
+            mode=preview
           else
-            echo 'NOTIFY_MODE=email' >> "$ATOMGIT_ENV"
+            mode=email
           fi
+          printf 'Manual run mode: %s. GitCode repository: %s\n' "$mode" "${target:-(configured watch list)}"
+          printf '%s\n%s\n' "$mode" "$target" > .gitcode/.notify-inputs
 
       - name: Run digest
         shell: bash
@@ -82,15 +85,21 @@ jobs:
           fi
 
           args=()
-          notify_mode="${NOTIFY_MODE:-fetch}"
+          notify_mode=fetch
+          fetch_gitcode_repo=
+          if [[ -f .gitcode/.notify-inputs ]]; then
+            mapfile -t manual_inputs < .gitcode/.notify-inputs
+            notify_mode="${manual_inputs[0]}"
+            fetch_gitcode_repo="${manual_inputs[1]}"
+          fi
           if [[ "$EVENT_NAME" == "Scheduler" || "$EVENT_NAME" == "schedule" ]]; then
             notify_mode=email
           fi
           case "$notify_mode" in
             fetch)
               args+=(--fetch-only)
-              if [[ -n "${FETCH_GITCODE_REPO:-}" ]]; then
-                printf -v AGENT_PIPELINE_CONFIG 'repositories:\n  - repo: %s\n    platform: gitcode\n' "$FETCH_GITCODE_REPO"
+              if [[ -n "$fetch_gitcode_repo" ]]; then
+                printf -v AGENT_PIPELINE_CONFIG 'repositories:\n  - repo: %s\n    platform: gitcode\n' "$fetch_gitcode_repo"
                 export AGENT_PIPELINE_CONFIG
               fi
               ;;
