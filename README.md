@@ -102,6 +102,13 @@ The same watch list works on GitHub Actions. Plain `owner/name` entries default 
 reads. If you also monitor GitHub repositories from AtomGit, set a `GITHUB_TOKEN` secret for
 authenticated GitHub reads.
 
+To run a public scan from the GitCode CLI, leave `fetch_only` at its default and pass the
+repository path as a string input.
+
+```bash
+gitcode actions workflow run notify.yml -R owner/notifier --ref main -f gitcode_repo=Ascend/MindIE-Motor
+```
+
 ## Local development
 
 ```bash

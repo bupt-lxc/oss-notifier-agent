@@ -73,7 +73,7 @@ jobs:
           else
             mode=email
           fi
-          printf 'Manual run mode: %s. GitCode repository: %s\n' "$mode" "${target:-(configured watch list)}"
+          printf 'Manual run mode: %s\n' "$mode"
           printf '%s\n%s\n' "$mode" "$target" > .gitcode/.notify-inputs
 
       - name: Run digest
@@ -107,6 +107,7 @@ jobs:
                 fetch_gitcode_repo=Ascend/MindIE-Motor
               fi
               if [[ -n "$fetch_gitcode_repo" ]]; then
+                printf 'Scanning GitCode repository %s\n' "$fetch_gitcode_repo"
                 printf -v AGENT_PIPELINE_CONFIG 'repositories:\n  - repo: %s\n    platform: gitcode\n' "$fetch_gitcode_repo"
                 export AGENT_PIPELINE_CONFIG
               fi
