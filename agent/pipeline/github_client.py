@@ -8,13 +8,15 @@ from agent.config import settings
 from agent.logging import get_logger
 from agent.pipeline.claims import has_active_claim
 from agent.pipeline.config import PipelineConfig, RepoConfig
-from agent.pipeline.models import Issue
+from agent.pipeline.models import Issue, IssueComment
 
 logger = get_logger(__name__)
 
 API_URL = "https://api.github.com"
 SEARCH_URL = f"{API_URL}/search/issues"
 PER_PAGE = 50
+# Leave room under the triage agent's token budget without dropping evidence.
+MAX_ISSUE_CONTEXT_CHARS = 12_000
 
 
 class GitHubIssuesClient:
@@ -41,7 +43,7 @@ class GitHubIssuesClient:
         since_iso: str,
         max_body_chars: int,
     ) -> list[Issue]:
-        """Search one repository for new, open issues that are available to take.
+        """Search one repository for new, open issues to assess for availability.
 
         Args:
             repo_config: The repo and its label/search-term overrides.
@@ -50,7 +52,7 @@ class GitHubIssuesClient:
             max_body_chars: Issue bodies longer than this are truncated.
 
         Returns:
-            Matching issues, truncated to max_body_chars.
+            Matching issues with a scope excerpt of at most max_body_chars.
         """
         query = self._build_query(repo_config, pipeline_config, since_iso)
         logger.info("Searching issues", extra={"repo": repo_config.repo, "query": query})
@@ -82,20 +84,38 @@ class GitHubIssuesClient:
                 continue
             body = item.get("body") or ""
             author = (item.get("user") or {}).get("login", "")
-            if not await self._is_available(repo_config.repo, item["number"], [(author, body)]):
+            number = item["number"]
+            comments = await self._get_timeline_comments(repo_config.repo, number)
+            if comments is None:
                 continue
-            truncated = len(body) > max_body_chars
-            if truncated:
-                body = body[:max_body_chars]
+            context_chars = len(body) + sum(
+                len(comment.author) + len(comment.author_association) + len(comment.body)
+                for comment in comments
+            )
+            if context_chars > MAX_ISSUE_CONTEXT_CHARS:
+                logger.info(
+                    "Skipping issue whose full discussion exceeds the triage budget",
+                    extra={"repo": repo_config.repo, "number": number, "chars": context_chars},
+                )
+                continue
+            claim_messages = [(author, body)]
+            claim_messages.extend((comment.author, comment.body) for comment in comments)
+            if has_active_claim(claim_messages):
+                continue
+
+            body_remainder = body[max_body_chars:]
             issues.append(
                 Issue(
                     repo=repo_config.repo,
                     title=item["title"],
-                    body=body,
+                    body=body[:max_body_chars],
                     labels=[label["name"] for label in item.get("labels", [])],
                     html_url=item["html_url"],
                     created_at=item["created_at"],
-                    truncated=truncated,
+                    truncated=len(body) > max_body_chars,
+                    author=author,
+                    body_remainder=body_remainder,
+                    comments=comments,
                 )
             )
         logger.info(
@@ -108,7 +128,9 @@ class GitHubIssuesClient:
         )
         return issues
 
-    async def _is_available(self, repo: str, number: int, comments: list[tuple[str, str]]) -> bool:
+    async def _get_timeline_comments(self, repo: str, number: int) -> list[IssueComment] | None:
+        """Return chronological comments, or None when a PR exists or the timeline fails."""
+        comments: list[IssueComment] = []
         url: httpx.URL | None = httpx.URL(
             f"{API_URL}/repos/{repo}/issues/{number}/timeline", params={"per_page": 100}
         )
@@ -120,11 +142,18 @@ class GitHubIssuesClient:
                     if event["event"] == "cross-referenced":
                         source_issue = (event.get("source") or {}).get("issue") or {}
                         if source_issue.get("pull_request") is not None:
-                            return False
+                            return None
                     elif event["event"] == "commented":
                         author = event.get("user") or {}
-                        if author.get("type") != "Bot":
-                            comments.append((author.get("login", ""), event.get("body") or ""))
+                        body = event.get("body") or ""
+                        if author.get("type") != "Bot" and body.strip():
+                            comments.append(
+                                IssueComment(
+                                    author=author.get("login", ""),
+                                    author_association=event.get("author_association") or "NONE",
+                                    body=body,
+                                )
+                            )
                 next_page = response.links.get("next", {}).get("url")
                 url = response.url.join(next_page) if next_page else None
         except httpx.HTTPError:
@@ -132,8 +161,8 @@ class GitHubIssuesClient:
                 "Skipping issue whose timeline could not be checked",
                 extra={"repo": repo, "number": number},
             )
-            return False
-        return not has_active_claim(comments)
+            return None
+        return comments
 
     def _build_query(
         self, repo_config: RepoConfig, pipeline_config: PipelineConfig, since_iso: str

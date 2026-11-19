@@ -11,6 +11,8 @@ from pydantic_evals import Case, Dataset
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext
 
 from agent.agents import run_agent
+from agent.pipeline.models import Issue, IssueComment
+from agent.prompts.templates import render_issue_prompt
 
 TYPO_FIX_ISSUE = (
     "Repository: octocat/example-repo\n"
@@ -45,6 +47,86 @@ async def test_agent_rejects_architecture_redesign():
     """A cross-cutting architectural change should not be flagged."""
     output = await run_agent(ARCHITECTURE_REDESIGN_ISSUE)
     assert output.is_good_first_issue is False
+
+
+@pytest.mark.eval
+@pytest.mark.parametrize(
+    ("body_remainder", "discussion", "expected"),
+    [
+        pytest.param(
+            "",
+            [
+                (
+                    "junior",
+                    "I can take this if no one's on it. I'll update the formatter and add a test.",
+                )
+            ],
+            False,
+            id="claim-with-a-plan",
+        ),
+        pytest.param(
+            "\nVerified fix: in formatter.py, add `s = s.rstrip()` before the line count check. "
+            "This patch passes the formatter tests. I can put up a PR if maintainers agree.",
+            [],
+            False,
+            id="author-offers-pr-in-body",
+        ),
+        pytest.param(
+            "",
+            [
+                (
+                    "reporter",
+                    "Replace `return s` in format_line in formatter.py with `return s.rstrip()`. The formatter tests pass with that change.",
+                ),
+                ("REPORTER", "Feel free to submit a PR with that fix."),
+            ],
+            False,
+            id="author-fix-and-pr-across-comments",
+        ),
+        pytest.param(
+            "",
+            [
+                (
+                    "reporter",
+                    "PRs welcome. Trimming output might help, but I haven't found the cause.",
+                )
+            ],
+            True,
+            id="generic-pr-invitation",
+        ),
+        pytest.param(
+            "",
+            [
+                ("junior", "I'll take this."),
+                ("junior", "I'm no longer working on it. It's open to others."),
+            ],
+            True,
+            id="released-claim",
+        ),
+    ],
+)
+async def test_agent_checks_issue_availability(body_remainder, discussion, expected):
+    issue = Issue(
+        repo="octocat/example-repo",
+        title="Formatter leaves trailing whitespace",
+        body="The format_line function in formatter.py leaves trailing whitespace in its output.",
+        labels=["good first issue"],
+        html_url="https://github.com/octocat/example-repo/issues/1",
+        created_at="2026-07-20T00:00:00Z",
+        author="reporter",
+        body_remainder=body_remainder,
+        truncated=bool(body_remainder),
+        comments=[
+            IssueComment(author=author, author_association="NONE", body=body)
+            for author, body in discussion
+        ],
+    )
+
+    output = await run_agent(render_issue_prompt(issue))
+
+    assert output.is_available is expected, output.reasoning
+    if not expected:
+        assert not output.is_good_first_issue
 
 
 # --- Dataset eval driven by evals/fixtures/triage_cases.json ---

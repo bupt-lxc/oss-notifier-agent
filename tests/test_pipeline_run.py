@@ -1,8 +1,10 @@
 """Unit tests for agent.pipeline.run — everything stubbed, no network, no real model calls."""
 
 import pytest
+from pydantic_ai.models.test import TestModel
 
 from agent.agents import AgentOutput
+from agent.agents.single import agent as triage_agent
 from agent.config import settings
 from agent.pipeline import run as run_module
 from agent.pipeline.config import PipelineConfig, RepoConfig
@@ -106,7 +108,7 @@ async def test_triage_issues_keeps_only_flagged(monkeypatch):
 
     async def fake_run_agent(prompt: str) -> AgentOutput:
         flag = "1" in prompt
-        return AgentOutput(is_good_first_issue=flag, reasoning="r", summary="s")
+        return AgentOutput(is_available=True, is_good_first_issue=flag, reasoning="r", summary="s")
 
     monkeypatch.setattr(run_module, "run_agent", fake_run_agent)
 
@@ -114,6 +116,20 @@ async def test_triage_issues_keeps_only_flagged(monkeypatch):
 
     assert len(flagged) == 1
     assert flagged[0][0].html_url.endswith("/1")
+
+
+async def test_triage_excludes_unavailable_issue_even_when_beginner_friendly():
+    test_model = TestModel(
+        custom_output_args={
+            "is_available": False,
+            "is_good_first_issue": True,
+            "reasoning": "作者给出了可直接提交 PR 的完整修复方案。",
+            "summary": "修复范围很小。正文给出了修改位置。",
+        }
+    )
+
+    with triage_agent.override(model=test_model):
+        assert await run_module.triage_issues([make_issue("a/b", 1)]) == []
 
 
 async def test_main_skips_email_when_nothing_flagged(monkeypatch):
@@ -128,7 +144,7 @@ async def test_main_skips_email_when_nothing_flagged(monkeypatch):
     )
 
     async def fake_run_agent(prompt: str) -> AgentOutput:
-        return AgentOutput(is_good_first_issue=False, reasoning="r", summary="s")
+        return AgentOutput(is_available=True, is_good_first_issue=False, reasoning="r", summary="s")
 
     monkeypatch.setattr(run_module, "run_agent", fake_run_agent)
 
@@ -156,7 +172,7 @@ async def test_main_sends_email_when_issues_flagged(monkeypatch):
     )
 
     async def fake_run_agent(prompt: str) -> AgentOutput:
-        return AgentOutput(is_good_first_issue=True, reasoning="r", summary="s")
+        return AgentOutput(is_available=True, is_good_first_issue=True, reasoning="r", summary="s")
 
     monkeypatch.setattr(run_module, "run_agent", fake_run_agent)
 
@@ -175,7 +191,10 @@ async def test_main_sends_email_when_issues_flagged(monkeypatch):
 
 def test_print_digest_includes_issue_details(capsys):
     verdict = AgentOutput(
-        is_good_first_issue=True, reasoning="Small, localized fix.", summary="Fix the thing."
+        is_available=True,
+        is_good_first_issue=True,
+        reasoning="Small, localized fix.",
+        summary="Fix the thing.",
     )
     run_module.print_digest([(make_issue("a/b", 1), verdict)])
 
@@ -203,7 +222,7 @@ async def test_main_dry_run_prints_instead_of_emailing(monkeypatch, capsys):
     )
 
     async def fake_run_agent(prompt: str) -> AgentOutput:
-        return AgentOutput(is_good_first_issue=True, reasoning="r", summary="s")
+        return AgentOutput(is_available=True, is_good_first_issue=True, reasoning="r", summary="s")
 
     monkeypatch.setattr(run_module, "run_agent", fake_run_agent)
     monkeypatch.setattr(run_module, "send_digest", _unexpected_send_digest)
@@ -227,7 +246,7 @@ async def test_main_dry_run_with_nothing_flagged(monkeypatch, capsys):
     )
 
     async def fake_run_agent(prompt: str) -> AgentOutput:
-        return AgentOutput(is_good_first_issue=False, reasoning="r", summary="s")
+        return AgentOutput(is_available=True, is_good_first_issue=False, reasoning="r", summary="s")
 
     monkeypatch.setattr(run_module, "run_agent", fake_run_agent)
     monkeypatch.setattr(run_module, "send_digest", _unexpected_send_digest)

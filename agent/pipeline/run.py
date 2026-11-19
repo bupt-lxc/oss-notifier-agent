@@ -1,7 +1,7 @@
 """Pipeline entrypoint: scan configured repos, triage new issues, email a digest.
 
 Deterministic orchestration — fetching, filtering, and emailing are plain
-Python; only the per-issue "is this a good first issue?" judgment goes
+Python; the per-issue availability and beginner-scope judgments go
 through the triage agent (agent/agents/single.py). Run with:
 
     uv run python -m agent.pipeline.run
@@ -68,11 +68,11 @@ async def collect_issues(config: PipelineConfig, github_client: GitHubIssuesClie
 
 
 async def triage_issues(issues: list[Issue]) -> list[tuple[Issue, AgentOutput]]:
-    """Classify each issue, keeping only ones flagged as good first issues."""
+    """Keep available issues that the agent flags as good first issues."""
     flagged: list[tuple[Issue, AgentOutput]] = []
     for issue in issues:
         verdict = await run_agent(render_issue_prompt(issue))
-        if verdict.is_good_first_issue:
+        if verdict.is_available and verdict.is_good_first_issue:
             flagged.append((issue, verdict))
     return flagged
 
