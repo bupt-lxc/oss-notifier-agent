@@ -4,6 +4,7 @@ Loads system prompts from .txt files in this directory.
 Centralizes prompt loading so all agents use the same pattern.
 """
 
+import json
 from pathlib import Path
 
 from agent.pipeline.models import Issue
@@ -33,15 +34,18 @@ def load_prompt(name: str) -> str:
 
 
 def render_issue_prompt(issue: Issue) -> str:
-    """Format a GitHub issue into the user prompt sent to the triage agent."""
-    labels = ", ".join(issue.labels) if issue.labels else "(none)"
-    body = issue.body if issue.body.strip() else "(empty)"
-    if issue.truncated:
-        body += "\n\n[body truncated]"
-    return (
-        f"Repository: {issue.repo}\n"
-        f"Title: {issue.title}\n"
-        f"Labels: {labels}\n"
-        f"URL: {issue.html_url}\n\n"
-        f"Body:\n{body}"
+    """Pass issue text and GitHub-supplied author metadata as structured data."""
+    return json.dumps(
+        {
+            "repository": issue.repo,
+            "title": issue.title,
+            "labels": issue.labels,
+            "url": issue.html_url,
+            "issue_author": issue.author,
+            "body": issue.body,
+            "body_truncated": issue.truncated,
+            "body_remainder": issue.body_remainder,
+            "comments": [comment.model_dump() for comment in issue.comments],
+        },
+        ensure_ascii=False,
     )

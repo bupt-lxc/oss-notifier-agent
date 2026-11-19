@@ -1,10 +1,13 @@
 """Unit tests for agent.pipeline.github_client — mocked transport, no network."""
 
+import json
+
 import httpx
 import pytest
 
 from agent.pipeline.config import PipelineConfig, RepoConfig
 from agent.pipeline.github_client import GitHubIssuesClient
+from agent.prompts.templates import render_issue_prompt
 
 SEARCH_RESPONSE = {
     "items": [
@@ -93,6 +96,85 @@ async def test_search_issues_truncates_long_body(repo_config, pipeline_config):
 
     assert len(issues[0].body) == 10
     assert issues[0].truncated is True
+
+
+async def test_search_preserves_full_availability_evidence_for_triage(repo_config, pipeline_config):
+    item = {
+        **SEARCH_RESPONSE["items"][0],
+        "user": {"login": "reporter"},
+        "body": "Original report. The body continues with a verified patch.",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/search/issues":
+            return httpx.Response(200, json={"items": [item]})
+        if request.url.params.get("page") != "2":
+            next_page = request.url.copy_merge_params({"page": 2})
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "event": "commented",
+                        "body": "I have a possible lead.",
+                        "user": {"login": "reader"},
+                    }
+                ],
+                headers={"Link": f'<{next_page}>; rel="next"'},
+            )
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "event": "commented",
+                    "body": "Use the verified patch above; a PR is welcome.",
+                    "user": {"login": "reporter"},
+                    "author_association": "MEMBER",
+                },
+                {
+                    "event": "commented",
+                    "body": "Automated notification",
+                    "user": {"login": "notify[bot]", "type": "Bot"},
+                },
+            ],
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = GitHubIssuesClient(http_client=http_client)
+        issues = await client.search_issues(
+            repo_config, pipeline_config, "2026-07-19T00:00:00Z", 16
+        )
+
+    assert len(issues) == 1
+    assert issues[0].body == "Original report."
+    prompt = json.loads(render_issue_prompt(issues[0]))
+    assert prompt["body"] + prompt["body_remainder"] == item["body"]
+    assert prompt["issue_author"] == "reporter"
+    assert prompt["comments"] == [
+        {"author": "reader", "author_association": "NONE", "body": "I have a possible lead."},
+        {
+            "author": "reporter",
+            "author_association": "MEMBER",
+            "body": "Use the verified patch above; a PR is welcome.",
+        },
+    ]
+
+
+async def test_search_skips_discussion_that_cannot_fit_triage_context(repo_config, pipeline_config):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/search/issues":
+            return httpx.Response(200, json=SEARCH_RESPONSE)
+        events = []
+        if request.url.path.endswith("/1/timeline"):
+            events = [{"event": "commented", "body": "Long discussion. " * 2000}]
+        return httpx.Response(200, json=events)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = GitHubIssuesClient(http_client=http_client)
+        issues = await client.search_issues(
+            repo_config, pipeline_config, "2026-07-19T00:00:00Z", 4000
+        )
+
+    assert [issue.html_url for issue in issues] == [SEARCH_RESPONSE["items"][1]["html_url"]]
 
 
 async def test_search_issues_raises_on_http_error(repo_config, pipeline_config):

@@ -2,9 +2,11 @@
 
 [![CI](https://github.com/tmtabor/oss-notifier-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/tmtabor/oss-notifier-agent/actions/workflows/ci.yml)
 
-Scans a configured list of GitHub or GitCode repositories on a schedule. Skips issues with an
-assignee, an associated pull request, or a clear claim in the issue or its comments. An LLM
-evaluates the remaining new issues for first-time contributors and emails a digest of the matches.
+Scans a configured list of GitHub or GitCode repositories on a schedule. Skips RFCs, issues
+explicitly marked void or withdrawn, and issues with an assignee, a linked pull request, or a
+clear claim. An LLM reads the remaining issues and their discussion to assess beginner
+suitability and exclude active claims or complete fixes that the issue author or a maintainer
+has said can be submitted as a PR. The pipeline emails a digest of the matches.
 Runs on GitHub Actions or AtomGit Action.
 
 Built on [agent-template](https://github.com/tmtabor/agent-template).
@@ -24,12 +26,11 @@ variables. For GitHub setup, see
 ## How it works
 
 ```
-GitHub or GitCode API → filter/truncate → [triage agent, one call per issue] → digest builder → SMTP or Postmark
+GitHub or GitCode API → discussion and filters → [triage agent, one call per issue] → digest builder → SMTP or Postmark
 ```
 
-The LLM only does one thing: classify a single issue as a good first issue
-(`agent/agents/single.py`). Fetching, filtering, and emailing are plain, deterministic Python
-(`agent/pipeline/`) — cheaper, predictable, and fully unit-testable without hitting a real model.
+The triage agent (`agent/agents/single.py`) checks availability and beginner suitability in one
+call. The pipeline skips issues whose full discussion exceeds the triage budget.
 
 ## Use this template
 
@@ -191,7 +192,7 @@ variables directly.
 | `AGENT_PIPELINE_CONFIG` | — | Required. YAML repo watch list — see [Use this template](#use-this-template). |
 | `POSTMARK_SERVER_TOKEN` / `AGENT_EMAIL_FROM` / `AGENT_EMAIL_TO` | — | Required to actually send the digest email. |
 | `AGENT_SEARCH_WINDOW_HOURS` | `25` | How far back each run searches for newly created issues. Set independently of the cron schedule — see [Use this template](#use-this-template). |
-| `AGENT_MAX_ISSUE_BODY_CHARS` | `4000` | Issue bodies longer than this are truncated before reaching the LLM. |
+| `AGENT_MAX_ISSUE_BODY_CHARS` | `4000` | Body characters used to assess beginner suitability. Availability checks also consider the rest of the body and the discussion. |
 | `AGENT_MAX_ISSUES_PER_RUN` | `30` | Cost guardrail across the whole run, on top of the triage agent's own `USAGE_LIMITS`. |
 
 ## Usage limits

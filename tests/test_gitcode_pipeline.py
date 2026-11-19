@@ -3,6 +3,7 @@ from pydantic import ValidationError
 
 from agent.pipeline import run
 from agent.pipeline.config import PipelineConfig, RepoConfig
+from agent.pipeline.models import Issue, IssueComment
 
 
 def test_watch_list_accepts_gitcode_urls_and_keeps_github_default():
@@ -80,3 +81,51 @@ async def test_fetch_only_reports_failure_when_the_only_repo_cannot_be_read(monk
         await run.main(fetch_only=True)
 
     assert str(error.value.__cause__) == "GitCode is unavailable"
+
+
+@pytest.mark.parametrize(
+    "excluded",
+    [
+        {"title": "[RFC]: Proposal for the deployment API"},
+        {"labels": ["kind: RFC"]},
+        {"body": "Overview\n\nThis issue is an RFC."},
+        {"title": "【已作废】接口连通性测试 issue，请忽略"},
+        {"labels": ["status: voided"]},
+        {"body_remainder": "\n\n本 Issue 已作废，请忽略。"},
+        {
+            "comments": [
+                IssueComment(author="Reporter", author_association="NONE", body="此工单已作废。")
+            ]
+        },
+    ],
+)
+async def test_explicit_rfc_and_void_issues_are_filtered_before_candidate_limit(
+    excluded, monkeypatch
+):
+    issue = Issue(
+        repo="Ascend/MindIE-Motor",
+        title="Fix RFC 9110 parsing for a void return value",
+        body=(
+            "This issue is an RFC 9110 compliance bug.\n"
+            "> This issue has been withdrawn.\n"
+            "```\nThis issue is an RFC.\n```"
+        ),
+        labels=["documentation"],
+        html_url="https://gitcode.com/Ascend/MindIE-Motor/issues/100",
+        created_at="2026-11-19T00:00:00Z",
+        author="reporter",
+        comments=[
+            IssueComment(
+                author="visitor", author_association="NONE", body="This issue has been withdrawn."
+            )
+        ],
+    )
+
+    class FakeClient:
+        async def search_issues(self, *_):
+            return [issue.model_copy(update={"title": "First issue", **excluded}), issue]
+
+    monkeypatch.setattr(run.settings, "max_issues_per_run", 1)
+    config = PipelineConfig(repositories=[RepoConfig(repo=issue.repo, platform="gitcode")])
+
+    assert await run.collect_issues(config, None, FakeClient()) == [issue]

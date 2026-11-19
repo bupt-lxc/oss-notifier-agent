@@ -1,10 +1,10 @@
-"""Triage agent: classifies a single GitHub issue as a good first issue or not.
+"""Triage agent: assesses an issue's availability and beginner scope.
 
 One agent, one task — this run is called once per candidate issue by
 agent/pipeline/run.py. It does no fetching, filtering, or emailing itself;
-that's deterministic Python (see agent/pipeline/). The agent's only job is
-the judgment call that actually needs an LLM: is this issue approachable for
-a first-time contributor?
+that's deterministic Python (see agent/pipeline/). The agent interprets
+the issue and its discussion to decide whether it is available and approachable
+for a first-time contributor.
 """
 
 from __future__ import annotations
@@ -32,10 +32,13 @@ USAGE_LIMITS = UsageLimits(request_limit=3, total_tokens_limit=20_000)
 
 # --- Output type ---
 class AgentOutput(BaseModel):
-    """Triage verdict for a single GitHub issue."""
+    """Triage verdict for a single issue."""
 
+    is_available: bool = Field(
+        description="False for RFCs, explicitly void issues, active claims, or a ready-to-submit fix provided by the issue author or a maintainer."
+    )
     is_good_first_issue: bool
-    reasoning: str = Field(description="用一句简体中文，依据 Issue 正文说明判断理由。")
+    reasoning: str = Field(description="用一句简体中文，依据 Issue 正文或评论说明判断理由。")
     summary: str = Field(description="用两句简体中文分别概述需要改动的内容，以及可以从哪里着手。")
 
 

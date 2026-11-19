@@ -14,7 +14,7 @@ from agent.config import settings
 from agent.logging import get_logger
 from agent.pipeline.claims import has_active_claim
 from agent.pipeline.config import PipelineConfig, RepoConfig
-from agent.pipeline.models import Issue
+from agent.pipeline.models import MAX_ISSUE_CONTEXT_CHARS, Issue, IssueComment
 
 logger = get_logger(__name__)
 
@@ -97,7 +97,22 @@ class GitCodeIssuesClient:
             if not re.fullmatch(r"[-\w]+", number):
                 raise ValueError("GitCode API returned an invalid issue number")
             author = (item.get("user") or {}).get("login") or ""
-            if not await self._is_available(f"{url}/{number}", author, body):
+            comments = await self._get_comments(f"{url}/{number}")
+            if comments is None:
+                continue
+            context_chars = len(body) + sum(
+                len(comment.author) + len(comment.author_association) + len(comment.body)
+                for comment in comments
+            )
+            if context_chars > MAX_ISSUE_CONTEXT_CHARS:
+                logger.info(
+                    "Skipping issue whose full discussion exceeds the triage budget",
+                    extra={"repo": repo, "number": number, "chars": context_chars},
+                )
+                continue
+            claim_messages = [(author, body)]
+            claim_messages.extend((comment.author, comment.body) for comment in comments)
+            if has_active_claim(claim_messages):
                 continue
             issues.append(
                 Issue(
@@ -108,18 +123,30 @@ class GitCodeIssuesClient:
                     html_url=item["html_url"],
                     created_at=item["created_at"],
                     truncated=len(body) > max_body_chars,
+                    author=author,
+                    body_remainder=body[max_body_chars:],
+                    comments=comments,
                 )
             )
 
         logger.info("GitCode search complete", extra={"repo": repo, "issue_count": len(issues)})
         return issues
 
-    async def _is_available(self, url: str, author: str, body: str) -> bool:
+    async def _get_comments(self, url: str) -> list[IssueComment] | None:
+        """Read chronological human comments, or return None if a PR is linked."""
         if await self._get_list(f"{url}/pull_requests"):
-            return False
-        discussion = [(author, body)]
+            return None
+        comments = []
         async for comment in self._paginate(f"{url}/comments", order="asc"):
             user = comment.get("user") or {}
-            if user.get("type") != "Bot":
-                discussion.append((user.get("login") or "", comment.get("body") or ""))
-        return not has_active_claim(discussion)
+            body = comment.get("body") or ""
+            if user.get("type") != "Bot" and body.strip():
+                comments.append(
+                    IssueComment(
+                        author=user.get("login") or "",
+                        # GitCode's comment API does not supply a verified repo role.
+                        author_association="NONE",
+                        body=body,
+                    )
+                )
+        return comments

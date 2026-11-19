@@ -135,6 +135,56 @@ async def test_search_reports_failed_pr_lookup(monkeypatch):
     assert error.value.response.status_code == 429
 
 
+async def test_search_preserves_full_discussion_for_availability_review(monkeypatch):
+    monkeypatch.setattr(settings, "gitcode_token", None)
+    body = "Summary\nFull discussion context and a proposed patch."
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == ISSUES_PATH:
+            return httpx.Response(200, json=[issue(1, body=body)])
+        if request.url.path.endswith("/pull_requests"):
+            return httpx.Response(200, json=[])
+        return httpx.Response(
+            200,
+            json=[
+                {"body": "First comment", "user": {"login": "reader", "member_role": "admin"}},
+                {"body": "Bot comment", "user": {"login": "bot", "type": "Bot"}},
+                {"body": "\n ", "user": {"login": "someone"}},
+                {"body": "Second comment", "user": {"login": "reporter"}},
+            ],
+        )
+
+    [match] = await search(handler)
+
+    assert match.author == "reporter"
+    assert match.body == "Summary"
+    assert match.truncated
+    assert match.body + match.body_remainder == body
+    assert [comment.model_dump() for comment in match.comments] == [
+        {"author": "reader", "author_association": "NONE", "body": "First comment"},
+        {"author": "reporter", "author_association": "NONE", "body": "Second comment"},
+    ]
+
+
+async def test_search_skips_issues_whose_full_context_exceeds_triage_budget(monkeypatch):
+    monkeypatch.setattr(settings, "gitcode_token", None)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == ISSUES_PATH:
+            return httpx.Response(200, json=[issue(3, body="b" * 12_001), issue(2), issue(1)])
+        if request.url.path.endswith("/2/comments"):
+            return httpx.Response(
+                200, json=[{"body": "Commentary " * 1_200, "user": {"login": "reader"}}]
+            )
+        return httpx.Response(200, json=[])
+
+    issues = await search(handler)
+
+    assert [match.html_url for match in issues] == [
+        "https://gitcode.com/Ascend/MindIE-Motor/issues/1"
+    ]
+
+
 async def test_search_rejects_paths_outside_owner_and_repo():
     def handler(request: httpx.Request) -> httpx.Response:
         pytest.fail("An invalid repository path must fail before calling GitCode")

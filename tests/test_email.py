@@ -20,6 +20,7 @@ ISSUE = Issue(
     created_at="2026-07-20T00:00:00Z",
 )
 VERDICT = AgentOutput(
+    is_available=True,
     is_good_first_issue=True,
     reasoning="这是一项范围明确的小型文档修正。",
     summary="修正 README 中的拼写错误。从 README.md 第 12 行开始。",

@@ -1,7 +1,7 @@
 """Pipeline entrypoint: scan configured repos, triage new issues, email a digest.
 
 Deterministic orchestration — fetching, filtering, and emailing are plain
-Python; only the per-issue "is this a good first issue?" judgment goes
+Python; the per-issue availability and beginner-scope judgments go
 through the triage agent (agent/agents/single.py). Run with:
 
     uv run python -m agent.pipeline.run
@@ -24,6 +24,7 @@ from agent.pipeline.config import PipelineConfig, load_config
 from agent.pipeline.email import send_digest
 from agent.pipeline.gitcode_client import GitCodeIssuesClient
 from agent.pipeline.github_client import GitHubIssuesClient
+from agent.pipeline.issue_status import exclusion_reason
 from agent.pipeline.models import Issue
 from agent.prompts.templates import render_issue_prompt
 
@@ -65,7 +66,11 @@ async def collect_issues(
             repo_issues = await client.search_issues(
                 repo_config, config, since_iso, settings.max_issue_body_chars
             )
-            issues.extend(repo_issues)
+            for issue in repo_issues:
+                if reason := exclusion_reason(issue):
+                    logger.info("Skipping %s issue %s", reason, issue.html_url)
+                else:
+                    issues.append(issue)
             searched += 1
         except Exception as error:
             last_error = error
@@ -95,11 +100,11 @@ async def run_agent(prompt: str) -> AgentOutput:
 
 
 async def triage_issues(issues: list[Issue]) -> list[tuple[Issue, AgentOutput]]:
-    """Classify each issue, keeping only ones flagged as good first issues."""
+    """Keep available issues that the agent flags as good first issues."""
     flagged: list[tuple[Issue, AgentOutput]] = []
     for issue in issues:
         verdict = await run_agent(render_issue_prompt(issue))
-        if verdict.is_good_first_issue:
+        if verdict.is_available and verdict.is_good_first_issue:
             flagged.append((issue, verdict))
     return flagged
 
