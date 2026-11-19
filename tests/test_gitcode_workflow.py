@@ -11,24 +11,27 @@ def read_workflow(name):
 
 
 @pytest.mark.parametrize(
-    ("name", "job", "cron", "group", "lookback"),
+    ("name", "cron", "group", "lookback"),
     [
-        ("notify.yml", "daily", "9 14 * * *", "daily", "25"),
-        ("notify-fast.yml", "fast", "11 * * * *", "fast", "3"),
+        ("notify.yml", "9 14 * * *", "daily", "25"),
+        ("notify-fast.yml", "11 * * * *", "fast", "3"),
     ],
 )
-def test_gitcode_scheduled_workflows_select_a_fixed_group(name, job, cron, group, lookback):
+def test_gitcode_scheduled_workflows_select_a_fixed_group_in_a_direct_job(
+    name, cron, group, lookback
+):
     workflow = read_workflow(name)
-    caller = workflow["jobs"][job]
     assert workflow["on"]["schedule"] == [{"cron": cron}]
-    assert caller["uses"] == "./.gitcode/workflows/notify-scan.yml"
-    assert caller["with"] == {"schedule_group": group, "lookback_hours": lookback}
+    job = workflow["jobs"]["notify"]
+    assert job["env"]["SCHEDULE_GROUP"] == group
+    assert job["env"]["LOOKBACK_HOURS"] == lookback
+    assert job["steps"][-1]["run"] == "bash .gitcode/run-notify.sh"
+    if group == "fast":
+        assert "workflow_dispatch" not in workflow["on"]
+        assert all(step.get("name") != "Read manual inputs" for step in job["steps"])
 
-    shared = read_workflow("notify-scan.yml")
-    assert set(caller["with"]) <= shared["on"]["workflow_call"]["inputs"].keys()
 
-
-def test_gitcode_manual_workflow_keeps_fetch_only_default():
+def test_gitcode_manual_workflow_reads_inputs_directly():
     workflow = read_workflow("notify.yml")
     inputs = workflow["on"]["workflow_dispatch"]["inputs"]
     assert {name: settings["default"] for name, settings in inputs.items()} == {
@@ -36,22 +39,25 @@ def test_gitcode_manual_workflow_keeps_fetch_only_default():
         "dry_run": "false",
         "gitcode_repo": "",
     }
-    caller = workflow["jobs"]["manual"]
-    assert caller["uses"] == "./.gitcode/workflows/notify-scan.yml"
-    assert set(caller["with"]) == inputs.keys()
+    step = next(
+        step for step in workflow["jobs"]["notify"]["steps"] if step["name"] == "Read manual inputs"
+    )
+    assert "Manual" in step["if"]
+    assert step["env"] == {
+        "FETCH_ONLY_INPUT": "${{ inputs.fetch_only }}",
+        "DRY_RUN_INPUT": "${{ inputs.dry_run }}",
+        "GITCODE_REPO_INPUT": "${{ inputs.gitcode_repo }}",
+    }
+    assert ".gitcode/.notify-inputs" in step["run"]
 
 
-@pytest.mark.parametrize(
-    ("name", "job"),
-    [("notify.yml", "daily"), ("notify.yml", "manual"), ("notify-fast.yml", "fast")],
-)
-def test_gitcode_reusable_call_maps_secrets_explicitly(name, job):
-    caller = read_workflow(name)["jobs"][job]
-    shared = read_workflow("notify-scan.yml")
-    declared = shared["on"]["workflow_call"]["secrets"]
-    scan_env = shared["jobs"]["scan"]["steps"][-1]["env"]
-    expected = {key: value for key, value in scan_env.items() if value.startswith("${{ secrets.")}
+def test_gitcode_workflows_share_runtime_environment():
+    daily = read_workflow("notify.yml")["jobs"]["notify"]["steps"][-1]["env"]
+    hourly = read_workflow("notify-fast.yml")["jobs"]["notify"]["steps"][-1]["env"]
 
-    assert caller["secrets"] == expected
-    assert declared == {key: {"required": "false"} for key in expected}
-    assert len(scan_env) <= 20  # AtomGit's step environment limit.
+    assert daily == hourly
+    assert daily["EVENT_NAME"] == "${{ atomgit.event_name }}"
+    assert daily["GITCODE_PIPELINE_CONFIG"] == "${{ secrets.GITCODE_PIPELINE_CONFIG }}"
+    assert daily["AGENT_PIPELINE_CONFIG"] == "${{ secrets.AGENT_PIPELINE_CONFIG }}"
+    assert "GITHUB_TOKEN" not in daily
+    assert len(daily) <= 20  # AtomGit's step environment limit.

@@ -116,8 +116,9 @@ Issue URLs and their timestamps.
    to the public `Ascend/MindIE-Motor` repository when both secrets are empty.
 4. Native schedules in [notify-fast.yml](.gitcode/workflows/notify-fast.yml) and
    [notify.yml](.gitcode/workflows/notify.yml) scan `fast` hourly (3-hour lookback) and `daily`
-   once a day (25-hour lookback). To schedule another GitCode group, add a native workflow
-   that calls the shared scan in [notify-scan.yml](.gitcode/workflows/notify-scan.yml).
+   once a day (25-hour lookback). To schedule another GitCode group, copy the hourly workflow
+   with a new name and adjust its cron, `SCHEDULE_GROUP`, and `LOOKBACK_HOURS`. The native
+   workflows share [run-notify.sh](.gitcode/run-notify.sh).
 5. Scheduled runs log candidates by default. To send scheduled email, configure the model
    and mail provider and set `AGENT_SCHEDULED_EMAIL=true`. For a manual triage preview, set
    `fetch_only=false` and `dry_run=true`. With both false, a manual run sends email.
@@ -212,10 +213,11 @@ evals/    # Pass/fail + dataset + LLM-as-judge evals — real API calls, run wit
 .github/workflows/
 ├── ci.yml       # CI: ruff check, format check, unit tests (no secrets needed)
 └── notify.yml    # GitHub schedules and manual runs
-.gitcode/workflows/
-├── notify.yml       # GitCode daily schedule and manual runs
-├── notify-fast.yml  # GitCode hourly schedule
-└── notify-scan.yml  # Shared native GitCode scan
+.gitcode/
+├── run-notify.sh         # Shared native GitCode runner
+└── workflows/
+    ├── notify.yml        # GitCode daily schedule and manual runs
+    └── notify-fast.yml   # GitCode hourly schedule
 ```
 
 ## Configuration
