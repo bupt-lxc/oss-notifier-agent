@@ -10,8 +10,8 @@ Runs on GitHub Actions or AtomGit Action.
 Built on [agent-template](https://github.com/tmtabor/agent-template).
 
 **This is a GitHub template repository.** Click **Use this template** to create your own copy.
-No instance-specific configuration — your repo watch list, labels, search terms, or credentials —
-should ever be committed. Configure your copy through GitHub Actions secrets and variables; see
+Keep your custom repo watch list, labels, search terms, and credentials in Actions secrets and
+variables. For GitHub setup, see
 [Use this template](#use-this-template) below.
 
 ## Stack
@@ -84,12 +84,12 @@ runs are silently never searched.
 2. In **Pipeline / Actions**, manually run **OSS Notifier Agent** with `gitcode_repo` set to
    `Ascend/MindIE-Motor` and `fetch_only` enabled. This checks public issues and shows the candidate
    links in the job log. It needs neither model nor email credentials.
-3. The workflow runs daily at 22:09 Beijing time. Before configuring the full digest, it scans
-   the public `Ascend/MindIE-Motor` repository and writes candidates to the job log.
-4. To enable the scheduled email digest and watch additional repositories, configure the model
-   and email settings from the table above, then add `AGENT_PIPELINE_CONFIG` as a secret in
-   **Project settings → Actions secrets and variables**. For a preview with model triage,
-   manually run it with `fetch_only=false` and `dry_run=true`.
+3. The workflow scans daily at 22:09 Beijing time and writes candidates to the job log.
+   Its default target is the public `Ascend/MindIE-Motor` repository. To customize the watch list,
+   add `AGENT_PIPELINE_CONFIG` in **Project settings → Actions secrets and variables**.
+4. To enable the scheduled email digest, configure the watch list, model, and email settings,
+   then set the repository variable `AGENT_SCHEDULED_EMAIL` to `true`. For a preview with
+   model triage, manually run with `fetch_only=false` and `dry_run=true`.
 
 ```yaml
 repositories:
