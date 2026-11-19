@@ -5,6 +5,7 @@ import json
 import httpx
 import pytest
 
+from agent.pipeline import github_client
 from agent.pipeline.config import PipelineConfig, RepoConfig
 from agent.pipeline.github_client import GitHubIssuesClient
 from agent.prompts.templates import render_issue_prompt
@@ -189,6 +190,42 @@ async def test_search_issues_raises_on_http_error(repo_config, pipeline_config):
             await client.search_issues(repo_config, pipeline_config, "2026-07-19T00:00:00Z", 4000)
     finally:
         await client._client.aclose()
+
+
+@pytest.mark.parametrize(
+    ("headers", "rejections", "expected_delays"),
+    [({}, 2, [60, 120]), ({"Retry-After": "75"}, 1, [75])],
+)
+async def test_search_retries_secondary_rate_limit(
+    monkeypatch, repo_config, pipeline_config, headers, rejections, expected_delays
+):
+    delays = []
+
+    async def record_sleep(seconds):
+        delays.append(seconds)
+
+    monkeypatch.setattr(github_client, "sleep", record_sleep)
+    throttled = iter([True] * rejections)
+
+    def handler(request):
+        if request.url.path.endswith("/timeline"):
+            return httpx.Response(200, json=[])
+        if next(throttled, False):
+            return httpx.Response(
+                403,
+                headers=headers,
+                json={"message": "You have exceeded a secondary rate limit."},
+            )
+        return httpx.Response(200, json=SEARCH_RESPONSE)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = GitHubIssuesClient(http_client)
+        issues = await client.search_issues(
+            repo_config, pipeline_config, "2026-07-19T00:00:00Z", 4000
+        )
+
+    assert delays == expected_delays
+    assert len(issues) == len(SEARCH_RESPONSE["items"])
 
 
 async def test_build_query_includes_labels_and_terms(repo_config):

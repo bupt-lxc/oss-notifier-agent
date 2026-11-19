@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from asyncio import sleep
+from time import time
+
 import httpx
 
 from agent.config import settings
@@ -15,6 +18,21 @@ logger = get_logger(__name__)
 API_URL = "https://api.github.com"
 SEARCH_URL = f"{API_URL}/search/issues"
 PER_PAGE = 50
+
+
+def _search_retry_delay(response: httpx.Response, fallback: int) -> int | None:
+    if response.status_code not in {403, 429}:
+        return None
+    retry_after = response.headers.get("retry-after", "")
+    if retry_after.isdecimal():
+        return int(retry_after)
+    if response.headers.get("x-ratelimit-remaining") == "0":
+        reset = response.headers.get("x-ratelimit-reset", "")
+        if reset.isdecimal():
+            return max(1, int(reset) - int(time()) + 1)
+    if response.status_code == 429 or "secondary rate limit" in response.text.lower():
+        return fallback
+    return None
 
 
 class GitHubIssuesClient:
@@ -55,11 +73,23 @@ class GitHubIssuesClient:
         query = self._build_query(repo_config, pipeline_config, since_iso)
         logger.info("Searching issues", extra={"repo": repo_config.repo, "query": query})
 
-        response = await self._client.get(
-            SEARCH_URL,
-            params={"q": query, "per_page": PER_PAGE},
-            headers=self._headers(),
-        )
+        for fallback in (60, 120, None):
+            response = await self._client.get(
+                SEARCH_URL,
+                params={"q": query, "per_page": PER_PAGE},
+                headers=self._headers(),
+            )
+            if fallback is None:
+                break
+            delay = _search_retry_delay(response, fallback)
+            if delay is None:
+                break
+            logger.warning(
+                "GitHub search rate limited for %s. Retrying in %d seconds.",
+                repo_config.repo,
+                delay,
+            )
+            await sleep(delay)
         if response.is_error:
             # httpx.HTTPStatusError's default message doesn't include the
             # response body, which is where GitHub explains *which* limit was
