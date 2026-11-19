@@ -1,0 +1,118 @@
+name: OSS Notifier Agent
+
+on:
+  schedule:
+    # Daily at 14:09 UTC (22:09 Beijing time).
+    - cron: "9 14 * * *"
+  workflow_dispatch:
+    inputs:
+      fetch_only:
+        description: Fetch repository activity without calling the model or sending email
+        type: boolean
+        default: true
+      dry_run:
+        description: Generate a preview without sending email when fetch_only is off
+        type: boolean
+        default: false
+      gitcode_repo:
+        description: Optional GitCode owner/repo to query during a fetch-only run
+        type: string
+        default: ""
+
+permissions:
+  repository: read
+
+concurrency:
+  enable: true
+  max: 1
+  exceed-action: QUEUE
+
+jobs:
+  notify:
+    runs-on: [ubuntu-latest, x64, small]
+    env:
+      AGENT_MODEL: ${{ vars.AGENT_MODEL }}
+      DASHSCOPE_MODEL: ${{ vars.DASHSCOPE_MODEL }}
+      SMTP_SERVER: ${{ vars.SMTP_SERVER }}
+      SMTP_PORT: ${{ vars.SMTP_PORT }}
+    steps:
+      - name: Check out the notifier
+        uses: checkout
+
+      - name: Set up Python
+        uses: setup-python
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: python -m pip install uv
+
+      # AtomGit only makes the inputs context available during manual runs.
+      - name: Read manual inputs
+        if: ${{ atomgit.event_name == 'Manual' || atomgit.event_name == 'workflow_dispatch' }}
+        shell: bash
+        env:
+          FETCH_ONLY_INPUT: ${{ inputs.fetch_only }}
+          DRY_RUN_INPUT: ${{ inputs.dry_run }}
+          GITCODE_REPO_INPUT: ${{ inputs.gitcode_repo }}
+        run: |
+          if [[ "${FETCH_ONLY_INPUT,,}" != "false" ]]; then
+            if [[ -n "$GITCODE_REPO_INPUT" ]]; then
+              if [[ ! "$GITCODE_REPO_INPUT" =~ ^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*/[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$ ]]; then
+                echo 'gitcode_repo must be a GitCode owner/repo path' >&2
+                exit 1
+              fi
+              printf 'FETCH_GITCODE_REPO=%s\n' "$GITCODE_REPO_INPUT" >> "$ATOMGIT_ENV"
+            fi
+            echo 'NOTIFY_MODE=fetch' >> "$ATOMGIT_ENV"
+          elif [[ "${DRY_RUN_INPUT,,}" == "true" ]]; then
+            echo 'NOTIFY_MODE=preview' >> "$ATOMGIT_ENV"
+          else
+            echo 'NOTIFY_MODE=email' >> "$ATOMGIT_ENV"
+          fi
+
+      - name: Run digest
+        shell: bash
+        run: |
+          [[ -n "${ANTHROPIC_BASE_URL:-}" ]] || unset ANTHROPIC_BASE_URL
+          [[ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]] || unset ANTHROPIC_AUTH_TOKEN
+          if [[ -z "${ANTHROPIC_API_KEY:-}" && -n "${ANTHROPIC_AUTH_TOKEN:-}" ]]; then
+            export ANTHROPIC_API_KEY="$ANTHROPIC_AUTH_TOKEN"
+          fi
+
+          args=()
+          notify_mode="${NOTIFY_MODE:-fetch}"
+          if [[ "$EVENT_NAME" == "Scheduler" || "$EVENT_NAME" == "schedule" ]]; then
+            notify_mode=email
+          fi
+          case "$notify_mode" in
+            fetch)
+              args+=(--fetch-only)
+              if [[ -n "${FETCH_GITCODE_REPO:-}" ]]; then
+                printf -v AGENT_PIPELINE_CONFIG 'repositories:\n  - repo: %s\n    platform: gitcode\n' "$FETCH_GITCODE_REPO"
+                export AGENT_PIPELINE_CONFIG
+              fi
+              ;;
+            preview)
+              args+=(--dry-run)
+              ;;
+          esac
+          python -m uv run --locked --no-dev python -m agent.pipeline.run "${args[@]}"
+        env:
+          EVENT_NAME: ${{ atomgit.event_name }}
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          DASHSCOPE_URL: ${{ secrets.DASHSCOPE_URL }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AGENT_PIPELINE_CONFIG: ${{ secrets.AGENT_PIPELINE_CONFIG }}
+          SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          POSTMARK_SERVER_TOKEN: ${{ secrets.POSTMARK_SERVER_TOKEN }}
+          AGENT_EMAIL_FROM: ${{ secrets.AGENT_EMAIL_FROM }}
+          AGENT_EMAIL_TO: ${{ secrets.AGENT_EMAIL_TO }}
+          LOGFIRE_TOKEN: ${{ secrets.LOGFIRE_TOKEN }}
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

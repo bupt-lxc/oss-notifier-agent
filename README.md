@@ -2,10 +2,10 @@
 
 [![CI](https://github.com/tmtabor/oss-notifier-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/tmtabor/oss-notifier-agent/actions/workflows/ci.yml)
 
-Scans a configured list of GitHub repositories on a schedule. Skips issues with an assignee, a
-linked or referencing pull request, or a clear claim in the issue or its comments. An LLM
+Scans a configured list of GitHub or GitCode repositories on a schedule. Skips issues with an
+assignee, an associated pull request, or a clear claim in the issue or its comments. An LLM
 evaluates the remaining new issues for first-time contributors and emails a digest of the matches.
-Runs entirely on GitHub Actions.
+Runs on GitHub Actions or AtomGit Action.
 
 Built on [agent-template](https://github.com/tmtabor/agent-template).
 
@@ -19,12 +19,12 @@ should ever be committed. Configure your copy through GitHub Actions secrets and
 - Pydantic AI v2 (agents) + pydantic-evals (evals)
 - Logfire (observability)
 - pytest + pytest-asyncio
-- GitHub Actions (scheduling), GitHub Search API (ingestion), SMTP or Postmark (email delivery)
+- GitHub Actions or AtomGit Action (scheduling), GitHub Search API and GitCode OpenAPI (ingestion), SMTP or Postmark (email delivery)
 
 ## How it works
 
 ```
-GitHub Search API → truncate/filter → [triage agent, one call per issue] → digest builder → SMTP or Postmark
+GitHub or GitCode API → filter/truncate → [triage agent, one call per issue] → digest builder → SMTP or Postmark
 ```
 
 The LLM only does one thing: classify a single issue as a good first issue
@@ -76,6 +76,30 @@ schedule** — it's a separate, manually-set value. If you change the cron inter
 `AGENT_SEARCH_WINDOW_HOURS` to match (plus a small buffer): too small and issues created between
 runs are silently never searched.
 
+## Run on GitCode (AtomGit)
+
+1. Create or reuse an AtomGit repository for the notifier and push the code with
+   `.gitcode/workflows/notify.yml` on its default branch. The pipeline capability may require
+   activation. See the [AtomGit Action quickstart](https://docs.gitcode.com/docs/help/home/org_project/pipeline/quick-start/).
+2. In **Pipeline / Actions**, manually run **OSS Notifier Agent** with `gitcode_repo` set to
+   `Ascend/MindIE-Motor` and `fetch_only` enabled. This checks public issues and shows the candidate
+   links in the job log. It needs neither model nor email credentials.
+3. In **Project settings → Actions secrets and variables**, add `AGENT_PIPELINE_CONFIG` as a
+   secret, using the example below. Configure the model and email settings from the table above.
+   The workflow runs daily at 22:09 Beijing time. For a preview with model triage, manually run it
+   with `fetch_only=false` and `dry_run=true`.
+
+```yaml
+repositories:
+  - repo: https://gitcode.com/Ascend/MindIE-Motor
+  # Add more GitCode URLs, or use repo: owner/name with platform: gitcode.
+```
+
+The same watch list works on GitHub Actions. Plain `owner/name` entries default to GitHub.
+`GITCODE_TOKEN` is optional for public repositories. Set it as a secret for authenticated GitCode
+reads. If you also monitor GitHub repositories from AtomGit, set a `GITHUB_TOKEN` secret for
+authenticated GitHub reads.
+
 ## Local development
 
 ```bash
@@ -103,6 +127,9 @@ uv run python -m agent.pipeline.run
 # up through triage still runs for real (GitHub search + real model calls),
 # only email delivery is skipped
 uv run python -m agent.pipeline.run --dry-run
+
+# Fetch and filter issues without model or mail credentials
+uv run python -m agent.pipeline.run --fetch-only
 
 # Lint
 uv run ruff check .

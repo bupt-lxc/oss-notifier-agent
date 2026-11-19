@@ -70,3 +70,4 @@ jobs:
           AGENT_EMAIL_TO: ${{ secrets.AGENT_EMAIL_TO }}
           LOGFIRE_TOKEN: ${{ secrets.LOGFIRE_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}

@@ -17,7 +17,7 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.alibaba import AlibabaProvider
 from pydantic_ai.usage import UsageLimits
 
-from agent.config import Settings, settings
+from agent.config import RuntimeSettings, settings
 from agent.logging import configure_logging, get_logger
 from agent.prompts.templates import load_prompt
 
@@ -49,7 +49,8 @@ class AgentDeps:
     pass
 
 
-def _build_model(config: Settings) -> str | OpenAIChatModel:
+def _build_model(config: RuntimeSettings) -> str | OpenAIChatModel:
+    config.check_provider_key()
     if config.model != "dashscope":
         return config.model
 
